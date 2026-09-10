@@ -12,4 +12,8 @@ pub enum CoreError {
     /// A destination identifier was empty.
     #[error("destination identifier cannot be empty")]
     EmptyDestinationId,
+
+    /// A policy version was zero.
+    #[error("policy version must be a positive value")]
+    PolicyVersionNotPositive,
 }
