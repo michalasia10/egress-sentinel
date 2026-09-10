@@ -8,3 +8,6 @@ pub mod identifiers;
 
 /// Domain-specific policy value objects.
 pub mod policy;
+
+/// Domain types that describe policy decisions.
+pub mod decision;
