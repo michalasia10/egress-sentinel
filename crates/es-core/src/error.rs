@@ -16,4 +16,8 @@ pub enum CoreError {
     /// A policy version was zero.
     #[error("policy version must be a positive value")]
     PolicyVersionNotPositive,
+
+    /// A policy digest was empty.
+    #[error("policy digest cannot be empty")]
+    EmptyPolicyDigest,
 }

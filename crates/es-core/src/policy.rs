@@ -29,9 +29,37 @@ impl PolicyVersion {
     }
 }
 
+/// A validated digest of the exact policy content used for an audit decision.
+///
+/// A digest records the policy content that was active, independently of its
+/// [`PolicyVersion`]. This type stores a digest supplied by another layer; it
+/// does not calculate hashes or choose a hashing algorithm.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PolicyDigest(String);
+
+impl PolicyDigest {
+    /// Creates a policy digest from a non-empty value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::EmptyPolicyDigest`] when `value` is empty.
+    pub fn new(value: String) -> Result<Self, CoreError> {
+        if value.is_empty() {
+            return Err(CoreError::EmptyPolicyDigest);
+        }
+
+        Ok(Self(value))
+    }
+
+    /// Returns the policy digest as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::PolicyVersion;
+    use super::{PolicyDigest, PolicyVersion};
     use crate::error::CoreError;
 
     #[test]
@@ -46,6 +74,26 @@ mod tests {
         assert_eq!(
             PolicyVersion::new(0),
             Err(CoreError::PolicyVersionNotPositive)
+        );
+    }
+
+    #[test]
+    fn preserves_a_valid_policy_digest() {
+        let policy_digest = PolicyDigest::new(
+            "sha256:3a7bd3e2360a3d80e6f96f51c2a5f97884a7d6f5c7d2e9f0a1b2c3d4e5f60718".to_owned(),
+        );
+
+        assert_eq!(
+            policy_digest.as_ref().map(PolicyDigest::as_str),
+            Ok("sha256:3a7bd3e2360a3d80e6f96f51c2a5f97884a7d6f5c7d2e9f0a1b2c3d4e5f60718")
+        );
+    }
+
+    #[test]
+    fn rejects_an_empty_policy_digest() {
+        assert_eq!(
+            PolicyDigest::new(String::new()),
+            Err(CoreError::EmptyPolicyDigest)
         );
     }
 }
