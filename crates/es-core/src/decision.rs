@@ -97,12 +97,17 @@ pub enum DecisionResolution {
 }
 
 impl DecisionResolution {
+    /// Returns the audit outcome when this resolution determines it directly.
+    ///
+    /// [`DecisionResolution::TerminatedByPolicy`] returns `None` because its
+    /// audit outcome depends on the last terminal [`AppliedRule`].
     pub fn direct_outcome(self) -> Option<Outcome> {
         match self {
             Self::Forwarded => Some(Outcome::Forwarded),
             Self::Failed => Some(Outcome::Failed),
-            _ => None,
+            Self::TerminatedByPolicy => None,
         }
+    }
 }
 
 /// A decision made after a project and its active policy revision were selected.
@@ -183,7 +188,7 @@ impl Decision {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{AppliedAction, AppliedRule, Decision, Outcome};
+    use super::{AppliedAction, AppliedRule, Decision, DecisionResolution, Outcome};
     use crate::{
         detection::DetectionCategory,
         error::CoreError,
@@ -230,6 +235,30 @@ mod tests {
     #[test]
     fn returns_no_terminal_outcome_for_mask() {
         assert_eq!(AppliedAction::Mask.terminal_outcome(), None);
+    }
+
+    #[test]
+    fn maps_forwarded_resolution_to_forwarded_outcome() {
+        assert_eq!(
+            DecisionResolution::Forwarded.direct_outcome(),
+            Some(Outcome::Forwarded)
+        );
+    }
+
+    #[test]
+    fn maps_failed_resolution_to_failed_outcome() {
+        assert_eq!(
+            DecisionResolution::Failed.direct_outcome(),
+            Some(Outcome::Failed)
+        );
+    }
+
+    #[test]
+    fn returns_no_direct_outcome_for_policy_termination() {
+        assert_eq!(
+            DecisionResolution::TerminatedByPolicy.direct_outcome(),
+            None
+        );
     }
 
     #[test]
