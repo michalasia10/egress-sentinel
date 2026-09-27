@@ -1,8 +1,12 @@
 //! Domain types that describe a policy decision.
+
+use std::collections::BTreeSet;
+
 use crate::{
+    detection::DetectionCategory,
     error::CoreError,
     identifiers::{DestinationId, ProjectId},
-    policy::PolicyRevision,
+    policy::{PolicyRevision, RuleId},
 };
 
 /// The final outcome of handling a payload.
@@ -32,6 +36,8 @@ pub struct Decision {
     destination_id: DestinationId,
     policy_revision: PolicyRevision,
     outcome: Outcome,
+    applied_rule_ids: Vec<RuleId>,
+    detection_categories: BTreeSet<DetectionCategory>,
 }
 
 impl Decision {
@@ -46,6 +52,8 @@ impl Decision {
         destination_id: DestinationId,
         policy_revision: PolicyRevision,
         outcome: Outcome,
+        applied_rule_ids: Vec<RuleId>,
+        detection_categories: BTreeSet<DetectionCategory>,
     ) -> Result<Self, CoreError> {
         if outcome == Outcome::Rejected {
             return Err(CoreError::RejectedOutcomeForPolicyDecision);
@@ -56,6 +64,8 @@ impl Decision {
             destination_id,
             policy_revision,
             outcome,
+            applied_rule_ids,
+            detection_categories,
         })
     }
 
@@ -78,15 +88,28 @@ impl Decision {
     pub fn outcome(&self) -> Outcome {
         self.outcome
     }
+
+    /// Returns the policy rule identifiers applied while making this decision.
+    pub fn applied_rule_ids(&self) -> &[RuleId] {
+        &self.applied_rule_ids
+    }
+
+    /// Returns the unique detection categories found while making this decision.
+    pub fn detection_categories(&self) -> &BTreeSet<DetectionCategory> {
+        &self.detection_categories
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{Decision, Outcome};
     use crate::{
+        detection::DetectionCategory,
         error::CoreError,
         identifiers::{DestinationId, ProjectId},
-        policy::{PolicyDigest, PolicyRevision, PolicyVersion},
+        policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
     };
 
     fn policy_revision() -> Result<PolicyRevision, CoreError> {
@@ -103,6 +126,11 @@ mod tests {
             DestinationId::new("destination-a".to_owned())?,
             policy_revision()?,
             Outcome::Forwarded,
+            vec![
+                RuleId::new("remove-sensitive-headers".to_owned())?,
+                RuleId::new("quarantine-secrets".to_owned())?,
+            ],
+            BTreeSet::from([DetectionCategory::Jwt, DetectionCategory::ApiKey]),
         )?;
 
         assert_eq!(decision.project_id().as_str(), "project-a");
@@ -113,6 +141,24 @@ mod tests {
             "sha256:abc123"
         );
         assert_eq!(decision.outcome(), Outcome::Forwarded);
+        assert_eq!(
+            decision
+                .applied_rule_ids()
+                .iter()
+                .map(RuleId::as_str)
+                .collect::<Vec<_>>(),
+            ["remove-sensitive-headers", "quarantine-secrets"]
+        );
+        assert!(
+            decision
+                .detection_categories()
+                .contains(&DetectionCategory::Jwt)
+        );
+        assert!(
+            decision
+                .detection_categories()
+                .contains(&DetectionCategory::ApiKey)
+        );
 
         Ok(())
     }
@@ -124,6 +170,8 @@ mod tests {
             DestinationId::new("destination-a".to_owned())?,
             policy_revision()?,
             Outcome::Rejected,
+            Vec::new(),
+            BTreeSet::new(),
         );
 
         assert_eq!(decision, Err(CoreError::RejectedOutcomeForPolicyDecision));

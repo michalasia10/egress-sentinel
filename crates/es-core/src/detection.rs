@@ -3,7 +3,7 @@
 /// A category of sensitive value detected in a payload.
 ///
 /// This classification contains no matched value or detection implementation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DetectionCategory {
     /// A JSON Web Token.
     Jwt,
