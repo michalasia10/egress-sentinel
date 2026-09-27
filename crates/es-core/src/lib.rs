@@ -11,3 +11,6 @@ pub mod policy;
 
 /// Domain types that describe policy decisions.
 pub mod decision;
+
+/// Categories of sensitive values recognized by detection components.
+pub mod detection;
