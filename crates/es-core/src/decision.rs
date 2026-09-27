@@ -48,6 +48,41 @@ pub enum AppliedAction {
     Quarantine,
 }
 
+/// A policy rule and the action it applied to a payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedRule {
+    rule_id: RuleId,
+    action: AppliedAction,
+}
+
+impl AppliedRule {
+    /// Records an action applied by a validated policy rule.
+    pub fn new(rule_id: RuleId, action: AppliedAction) -> Self {
+        Self { rule_id, action }
+    }
+
+    /// Returns the identifier of the rule that was applied.
+    pub fn rule_id(&self) -> &RuleId {
+        &self.rule_id
+    }
+
+    /// Returns the action that the rule applied.
+    pub fn action(&self) -> AppliedAction {
+        self.action
+    }
+}
+
+/// The internal reason that policy decision processing ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DecisionResolution {
+    /// Processing completed and the payload was forwarded.
+    Forwarded,
+    /// Processing could not be completed.
+    Failed,
+    /// A terminal policy action ended processing.
+    TerminatedByPolicy,
+}
+
 /// A decision made after a project and its active policy revision were selected.
 ///
 /// An ingress rejection cannot be represented as a `Decision`, because no
@@ -126,7 +161,7 @@ impl Decision {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Decision, Outcome};
+    use super::{AppliedAction, AppliedRule, Decision, Outcome};
     use crate::{
         detection::DetectionCategory,
         error::CoreError,
@@ -139,6 +174,19 @@ mod tests {
         let digest = PolicyDigest::new("sha256:abc123".to_owned())?;
 
         Ok(PolicyRevision::new(version, digest))
+    }
+
+    #[test]
+    fn preserves_an_applied_rule_pair() -> Result<(), CoreError> {
+        let applied_rule = AppliedRule::new(
+            RuleId::new("remove-sensitive-headers".to_owned())?,
+            AppliedAction::Remove,
+        );
+
+        assert_eq!(applied_rule.rule_id().as_str(), "remove-sensitive-headers");
+        assert_eq!(applied_rule.action(), AppliedAction::Remove);
+
+        Ok(())
     }
 
     #[test]
