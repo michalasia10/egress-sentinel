@@ -193,6 +193,27 @@ impl Decision {
         self.resolution
     }
 
+    /// Returns the audit outcome derived from this decision's resolution and rules.
+    ///
+    /// For a policy-terminated decision, the outcome is determined by the
+    /// final terminal action. Construction validates that such an action exists.
+    pub fn outcome(&self) -> Outcome {
+        if let Some(outcome) = self.resolution.direct_outcome() {
+            return outcome;
+        }
+
+        match self
+            .applied_rules
+            .last()
+            .and_then(|applied_rule| applied_rule.action().terminal_outcome())
+        {
+            Some(outcome) => outcome,
+            None => unreachable!(
+                "validated policy-terminated decision must have a final terminal action"
+            ),
+        }
+    }
+
     /// Returns the policy rules applied while making this decision.
     pub fn applied_rules(&self) -> &[AppliedRule] {
         &self.applied_rules
@@ -221,6 +242,20 @@ mod tests {
         let digest = PolicyDigest::new("sha256:abc123".to_owned())?;
 
         Ok(PolicyRevision::new(version, digest))
+    }
+
+    fn decision(
+        resolution: DecisionResolution,
+        applied_rules: Vec<AppliedRule>,
+    ) -> Result<Decision, CoreError> {
+        Decision::new(
+            ProjectId::new("project-a".to_owned())?,
+            DestinationId::new("destination-a".to_owned())?,
+            policy_revision()?,
+            resolution,
+            applied_rules,
+            BTreeSet::new(),
+        )
     }
 
     #[test]
@@ -423,6 +458,54 @@ mod tests {
         );
 
         assert_eq!(decision, Err(CoreError::NonFinalTerminalAction));
+
+        Ok(())
+    }
+
+    #[test]
+    fn derives_dropped_outcome_from_a_final_drop_event() -> Result<(), CoreError> {
+        let decision = decision(
+            DecisionResolution::TerminatedByPolicy,
+            vec![AppliedRule::new(
+                RuleId::new("drop-sensitive-event".to_owned())?,
+                AppliedAction::DropEvent,
+            )],
+        )?;
+
+        assert_eq!(decision.outcome(), Outcome::Dropped);
+
+        Ok(())
+    }
+
+    #[test]
+    fn derives_quarantined_outcome_from_a_final_quarantine() -> Result<(), CoreError> {
+        let decision = decision(
+            DecisionResolution::TerminatedByPolicy,
+            vec![AppliedRule::new(
+                RuleId::new("quarantine-secrets".to_owned())?,
+                AppliedAction::Quarantine,
+            )],
+        )?;
+
+        assert_eq!(decision.outcome(), Outcome::Quarantined);
+
+        Ok(())
+    }
+
+    #[test]
+    fn derives_forwarded_outcome_from_a_forwarded_resolution() -> Result<(), CoreError> {
+        let decision = decision(DecisionResolution::Forwarded, Vec::new())?;
+
+        assert_eq!(decision.outcome(), Outcome::Forwarded);
+
+        Ok(())
+    }
+
+    #[test]
+    fn derives_failed_outcome_from_a_failed_resolution() -> Result<(), CoreError> {
+        let decision = decision(DecisionResolution::Failed, Vec::new())?;
+
+        assert_eq!(decision.outcome(), Outcome::Failed);
 
         Ok(())
     }
