@@ -26,6 +26,28 @@ pub enum Outcome {
     Failed,
 }
 
+/// An action already applied by the policy engine.
+///
+/// This is a record of policy evaluation, not an instruction to execute an
+/// action or a representation of the policy rule that selected it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AppliedAction {
+    /// A matching field was removed.
+    Remove,
+    /// A matching value was replaced with a fixed marker.
+    Replace,
+    /// An explicitly configured portion of a value was preserved.
+    Mask,
+    /// A stable pseudonym was produced with HMAC-SHA-256.
+    HmacSha256,
+    /// The sanitized payload was routed to another approved destination.
+    Route,
+    /// The complete event was dropped.
+    DropEvent,
+    /// The payload was not forwarded and a safe audit outcome was recorded.
+    Quarantine,
+}
+
 /// A decision made after a project and its active policy revision were selected.
 ///
 /// An ingress rejection cannot be represented as a `Decision`, because no
