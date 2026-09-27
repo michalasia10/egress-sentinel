@@ -96,6 +96,15 @@ pub enum DecisionResolution {
     TerminatedByPolicy,
 }
 
+impl DecisionResolution {
+    pub fn direct_outcome(self) -> Option<Outcome> {
+        match self {
+            Self::Forwarded => Some(Outcome::Forwarded),
+            Self::Failed => Some(Outcome::Failed),
+            _ => None,
+        }
+}
+
 /// A decision made after a project and its active policy revision were selected.
 ///
 /// An ingress rejection cannot be represented as a `Decision`, because no
@@ -106,7 +115,7 @@ pub struct Decision {
     destination_id: DestinationId,
     policy_revision: PolicyRevision,
     outcome: Outcome,
-    applied_rule_ids: Vec<RuleId>,
+    applied_rules: Vec<AppliedRule>,
     detection_categories: BTreeSet<DetectionCategory>,
 }
 
@@ -122,7 +131,7 @@ impl Decision {
         destination_id: DestinationId,
         policy_revision: PolicyRevision,
         outcome: Outcome,
-        applied_rule_ids: Vec<RuleId>,
+        applied_rules: Vec<AppliedRule>,
         detection_categories: BTreeSet<DetectionCategory>,
     ) -> Result<Self, CoreError> {
         if outcome == Outcome::Rejected {
@@ -134,7 +143,7 @@ impl Decision {
             destination_id,
             policy_revision,
             outcome,
-            applied_rule_ids,
+            applied_rules,
             detection_categories,
         })
     }
@@ -159,9 +168,9 @@ impl Decision {
         self.outcome
     }
 
-    /// Returns the policy rule identifiers applied while making this decision.
-    pub fn applied_rule_ids(&self) -> &[RuleId] {
-        &self.applied_rule_ids
+    /// Returns the policy rules applied while making this decision.
+    pub fn applied_rules(&self) -> &[AppliedRule] {
+        &self.applied_rules
     }
 
     /// Returns the unique detection categories found while making this decision.
@@ -231,8 +240,14 @@ mod tests {
             policy_revision()?,
             Outcome::Forwarded,
             vec![
-                RuleId::new("remove-sensitive-headers".to_owned())?,
-                RuleId::new("quarantine-secrets".to_owned())?,
+                AppliedRule::new(
+                    RuleId::new("remove-sensitive-headers".to_owned())?,
+                    AppliedAction::Remove,
+                ),
+                AppliedRule::new(
+                    RuleId::new("quarantine-secrets".to_owned())?,
+                    AppliedAction::Quarantine,
+                ),
             ],
             BTreeSet::from([DetectionCategory::Jwt, DetectionCategory::ApiKey]),
         )?;
@@ -247,11 +262,19 @@ mod tests {
         assert_eq!(decision.outcome(), Outcome::Forwarded);
         assert_eq!(
             decision
-                .applied_rule_ids()
+                .applied_rules()
                 .iter()
-                .map(RuleId::as_str)
+                .map(|applied_rule| applied_rule.rule_id().as_str())
                 .collect::<Vec<_>>(),
             ["remove-sensitive-headers", "quarantine-secrets"]
+        );
+        assert_eq!(
+            decision
+                .applied_rules()
+                .iter()
+                .map(AppliedRule::action)
+                .collect::<Vec<_>>(),
+            [AppliedAction::Remove, AppliedAction::Quarantine]
         );
         assert!(
             decision
