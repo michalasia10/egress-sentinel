@@ -7,6 +7,7 @@ use crate::{
     error::CoreError,
     identifiers::{DestinationId, ProjectId},
     policy::{PolicyRevision, RuleId},
+    protocol::SourceProtocol,
 };
 
 /// The final outcome of handling a payload.
@@ -118,6 +119,7 @@ impl DecisionResolution {
 pub struct Decision {
     project_id: ProjectId,
     destination_id: DestinationId,
+    source_protocol: SourceProtocol,
     policy_revision: PolicyRevision,
     resolution: DecisionResolution,
     applied_rules: Vec<AppliedRule>,
@@ -134,6 +136,7 @@ impl Decision {
     pub fn new(
         project_id: ProjectId,
         destination_id: DestinationId,
+        source_protocol: SourceProtocol,
         policy_revision: PolicyRevision,
         resolution: DecisionResolution,
         applied_rules: Vec<AppliedRule>,
@@ -166,6 +169,7 @@ impl Decision {
         Ok(Self {
             project_id,
             destination_id,
+            source_protocol,
             policy_revision,
             resolution,
             applied_rules,
@@ -181,6 +185,11 @@ impl Decision {
     /// Returns the destination selected for this decision.
     pub fn destination_id(&self) -> &DestinationId {
         &self.destination_id
+    }
+
+    /// Returns the protocol through which telemetry entered the gateway.
+    pub fn source_protocol(&self) -> SourceProtocol {
+        self.source_protocol
     }
 
     /// Returns the policy revision used to make this decision.
@@ -235,6 +244,7 @@ mod tests {
         error::CoreError,
         identifiers::{DestinationId, ProjectId},
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
+        protocol::SourceProtocol,
     };
 
     fn policy_revision() -> Result<PolicyRevision, CoreError> {
@@ -251,6 +261,7 @@ mod tests {
         Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             resolution,
             applied_rules,
@@ -321,6 +332,7 @@ mod tests {
         let decision = Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             DecisionResolution::Forwarded,
             vec![
@@ -338,6 +350,7 @@ mod tests {
 
         assert_eq!(decision.project_id().as_str(), "project-a");
         assert_eq!(decision.destination_id().as_str(), "destination-a");
+        assert_eq!(decision.source_protocol(), SourceProtocol::SentryEnvelope);
         assert_eq!(decision.policy_revision().version().as_u64(), 3);
         assert_eq!(
             decision.policy_revision().digest().as_str(),
@@ -379,6 +392,7 @@ mod tests {
         let decision = Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![AppliedRule::new(
@@ -401,6 +415,7 @@ mod tests {
         let decision = Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![AppliedRule::new(
@@ -423,6 +438,7 @@ mod tests {
         let decision = Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             DecisionResolution::Forwarded,
             vec![AppliedRule::new(
@@ -442,6 +458,7 @@ mod tests {
         let decision = Decision::new(
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
+            SourceProtocol::SentryEnvelope,
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![

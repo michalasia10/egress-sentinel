@@ -14,3 +14,6 @@ pub mod decision;
 
 /// Categories of sensitive values recognized by detection components.
 pub mod detection;
+
+/// Shared vocabulary for source telemetry protocols.
+pub mod protocol;
