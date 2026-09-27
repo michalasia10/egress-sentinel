@@ -57,9 +57,36 @@ impl PolicyDigest {
     }
 }
 
+/// The version and exact-content digest that identify a policy revision.
+///
+/// A revision combines the human-readable policy version with the digest of
+/// the exact policy content that was active for a decision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PolicyRevision {
+    version: PolicyVersion,
+    digest: PolicyDigest,
+}
+
+impl PolicyRevision {
+    /// Combines validated policy version and digest values into a revision.
+    pub fn new(version: PolicyVersion, digest: PolicyDigest) -> Self {
+        Self { version, digest }
+    }
+
+    /// Returns the policy version of this revision.
+    pub fn version(&self) -> PolicyVersion {
+        self.version
+    }
+
+    /// Returns the exact-content digest of this revision.
+    pub fn digest(&self) -> &PolicyDigest {
+        &self.digest
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PolicyDigest, PolicyVersion};
+    use super::{PolicyDigest, PolicyRevision, PolicyVersion};
     use crate::error::CoreError;
 
     #[test]
@@ -94,6 +121,28 @@ mod tests {
         assert_eq!(
             PolicyDigest::new(String::new()),
             Err(CoreError::EmptyPolicyDigest)
+        );
+    }
+
+    #[test]
+    fn preserves_both_policy_revision_components() {
+        let policy_revision = PolicyVersion::new(3).and_then(|version| {
+            PolicyDigest::new("sha256:abc123".to_owned())
+                .map(|digest| PolicyRevision::new(version, digest))
+        });
+
+        assert_eq!(
+            policy_revision
+                .as_ref()
+                .map(PolicyRevision::version)
+                .map(|version| version.as_u64()),
+            Ok(3)
+        );
+        assert_eq!(
+            policy_revision
+                .as_ref()
+                .map(|revision| revision.digest().as_str()),
+            Ok("sha256:abc123")
         );
     }
 }

@@ -20,4 +20,8 @@ pub enum CoreError {
     /// A policy digest was empty.
     #[error("policy digest cannot be empty")]
     EmptyPolicyDigest,
+
+    /// A policy decision was created with the ingress-only rejected outcome.
+    #[error("a policy decision cannot have a rejected outcome")]
+    RejectedOutcomeForPolicyDecision,
 }
