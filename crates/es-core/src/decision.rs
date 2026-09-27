@@ -42,10 +42,23 @@ pub enum AppliedAction {
     HmacSha256,
     /// The sanitized payload was routed to another approved destination.
     Route,
-    /// The complete event was dropped.
+    /// The complete event was dropped, terminating policy evaluation.
     DropEvent,
-    /// The payload was not forwarded and a safe audit outcome was recorded.
+    /// The payload was not forwarded, terminating policy evaluation with a safe audit outcome.
     Quarantine,
+}
+
+impl AppliedAction {
+    /// Returns the audit outcome associated with this terminal action.
+    ///
+    /// Returns `None` for actions that do not terminate policy evaluation.
+    pub fn terminal_outcome(self) -> Option<Outcome> {
+        match self {
+            Self::DropEvent => Some(Outcome::Dropped),
+            Self::Quarantine => Some(Outcome::Quarantined),
+            _ => None,
+        }
+    }
 }
 
 /// A policy rule and the action it applied to a payload.
@@ -187,6 +200,27 @@ mod tests {
         assert_eq!(applied_rule.action(), AppliedAction::Remove);
 
         Ok(())
+    }
+
+    #[test]
+    fn maps_drop_event_to_dropped_outcome() {
+        assert_eq!(
+            AppliedAction::DropEvent.terminal_outcome(),
+            Some(Outcome::Dropped)
+        );
+    }
+
+    #[test]
+    fn maps_quarantine_to_quarantined_outcome() {
+        assert_eq!(
+            AppliedAction::Quarantine.terminal_outcome(),
+            Some(Outcome::Quarantined)
+        );
+    }
+
+    #[test]
+    fn returns_no_terminal_outcome_for_mask() {
+        assert_eq!(AppliedAction::Mask.terminal_outcome(), None);
     }
 
     #[test]
