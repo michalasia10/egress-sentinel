@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     detection::DetectionCategory,
+    error::CoreError,
     identifiers::{DestinationId, ProjectId},
     policy::{PolicyRevision, RuleId},
 };
@@ -125,6 +126,11 @@ pub struct Decision {
 
 impl Decision {
     /// Creates a decision associated with a selected policy revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the applied-rule sequence is inconsistent with
+    /// `resolution` or contains a non-final terminal action.
     pub fn new(
         project_id: ProjectId,
         destination_id: DestinationId,
@@ -132,15 +138,39 @@ impl Decision {
         resolution: DecisionResolution,
         applied_rules: Vec<AppliedRule>,
         detection_categories: BTreeSet<DetectionCategory>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, CoreError> {
+        if applied_rules
+            .iter()
+            .take(applied_rules.len().saturating_sub(1))
+            .any(|applied_rule| applied_rule.action().terminal_outcome().is_some())
+        {
+            return Err(CoreError::NonFinalTerminalAction);
+        }
+
+        let has_terminal_final_action = applied_rules
+            .last()
+            .is_some_and(|applied_rule| applied_rule.action().terminal_outcome().is_some());
+
+        match resolution {
+            DecisionResolution::TerminatedByPolicy if !has_terminal_final_action => {
+                return Err(CoreError::TerminatedByPolicyWithoutTerminalAction);
+            }
+            DecisionResolution::Forwarded | DecisionResolution::Failed
+                if has_terminal_final_action =>
+            {
+                return Err(CoreError::DirectResolutionWithTerminalAction);
+            }
+            _ => {}
+        }
+
+        Ok(Self {
             project_id,
             destination_id,
             policy_revision,
             resolution,
             applied_rules,
             detection_categories,
-        }
+        })
     }
 
     /// Returns the project this decision belongs to.
@@ -264,12 +294,12 @@ mod tests {
                     AppliedAction::Remove,
                 ),
                 AppliedRule::new(
-                    RuleId::new("quarantine-secrets".to_owned())?,
-                    AppliedAction::Quarantine,
+                    RuleId::new("mask-sensitive-fields".to_owned())?,
+                    AppliedAction::Mask,
                 ),
             ],
             BTreeSet::from([DetectionCategory::Jwt, DetectionCategory::ApiKey]),
-        );
+        )?;
 
         assert_eq!(decision.project_id().as_str(), "project-a");
         assert_eq!(decision.destination_id().as_str(), "destination-a");
@@ -285,7 +315,7 @@ mod tests {
                 .iter()
                 .map(|applied_rule| applied_rule.rule_id().as_str())
                 .collect::<Vec<_>>(),
-            ["remove-sensitive-headers", "quarantine-secrets"]
+            ["remove-sensitive-headers", "mask-sensitive-fields"]
         );
         assert_eq!(
             decision
@@ -293,7 +323,7 @@ mod tests {
                 .iter()
                 .map(AppliedRule::action)
                 .collect::<Vec<_>>(),
-            [AppliedAction::Remove, AppliedAction::Quarantine]
+            [AppliedAction::Remove, AppliedAction::Mask]
         );
         assert!(
             decision
@@ -305,6 +335,94 @@ mod tests {
                 .detection_categories()
                 .contains(&DetectionCategory::ApiKey)
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn creates_a_policy_terminated_decision_with_a_final_drop_event() -> Result<(), CoreError> {
+        let decision = Decision::new(
+            ProjectId::new("project-a".to_owned())?,
+            DestinationId::new("destination-a".to_owned())?,
+            policy_revision()?,
+            DecisionResolution::TerminatedByPolicy,
+            vec![AppliedRule::new(
+                RuleId::new("drop-sensitive-event".to_owned())?,
+                AppliedAction::DropEvent,
+            )],
+            BTreeSet::new(),
+        )?;
+
+        assert_eq!(
+            decision.resolution(),
+            DecisionResolution::TerminatedByPolicy
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_policy_termination_with_a_non_terminal_final_action() -> Result<(), CoreError> {
+        let decision = Decision::new(
+            ProjectId::new("project-a".to_owned())?,
+            DestinationId::new("destination-a".to_owned())?,
+            policy_revision()?,
+            DecisionResolution::TerminatedByPolicy,
+            vec![AppliedRule::new(
+                RuleId::new("remove-sensitive-headers".to_owned())?,
+                AppliedAction::Remove,
+            )],
+            BTreeSet::new(),
+        );
+
+        assert_eq!(
+            decision,
+            Err(CoreError::TerminatedByPolicyWithoutTerminalAction)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_forwarding_with_a_terminal_final_action() -> Result<(), CoreError> {
+        let decision = Decision::new(
+            ProjectId::new("project-a".to_owned())?,
+            DestinationId::new("destination-a".to_owned())?,
+            policy_revision()?,
+            DecisionResolution::Forwarded,
+            vec![AppliedRule::new(
+                RuleId::new("drop-sensitive-event".to_owned())?,
+                AppliedAction::DropEvent,
+            )],
+            BTreeSet::new(),
+        );
+
+        assert_eq!(decision, Err(CoreError::DirectResolutionWithTerminalAction));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_a_terminal_action_before_the_final_applied_rule() -> Result<(), CoreError> {
+        let decision = Decision::new(
+            ProjectId::new("project-a".to_owned())?,
+            DestinationId::new("destination-a".to_owned())?,
+            policy_revision()?,
+            DecisionResolution::TerminatedByPolicy,
+            vec![
+                AppliedRule::new(
+                    RuleId::new("drop-sensitive-event".to_owned())?,
+                    AppliedAction::DropEvent,
+                ),
+                AppliedRule::new(
+                    RuleId::new("remove-sensitive-headers".to_owned())?,
+                    AppliedAction::Remove,
+                ),
+            ],
+            BTreeSet::new(),
+        );
+
+        assert_eq!(decision, Err(CoreError::NonFinalTerminalAction));
 
         Ok(())
     }

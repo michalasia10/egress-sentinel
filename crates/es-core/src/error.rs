@@ -24,4 +24,16 @@ pub enum CoreError {
     /// A policy rule identifier was empty.
     #[error("rule identifier cannot be empty")]
     EmptyRuleId,
+
+    /// A policy-terminated decision had no final terminal action.
+    #[error("a policy-terminated decision requires a final terminal action")]
+    TerminatedByPolicyWithoutTerminalAction,
+
+    /// A forwarded or failed decision ended with a terminal policy action.
+    #[error("a forwarded or failed decision cannot end with a terminal action")]
+    DirectResolutionWithTerminalAction,
+
+    /// A terminal policy action occurred before the final applied rule.
+    #[error("a terminal action must be the final applied rule")]
+    NonFinalTerminalAction,
 }
