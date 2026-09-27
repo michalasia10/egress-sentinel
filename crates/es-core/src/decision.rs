@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 
 use crate::{
     detection::DetectionCategory,
-    error::CoreError,
     identifiers::{DestinationId, ProjectId},
     policy::{PolicyRevision, RuleId},
 };
@@ -119,38 +118,29 @@ pub struct Decision {
     project_id: ProjectId,
     destination_id: DestinationId,
     policy_revision: PolicyRevision,
-    outcome: Outcome,
+    resolution: DecisionResolution,
     applied_rules: Vec<AppliedRule>,
     detection_categories: BTreeSet<DetectionCategory>,
 }
 
 impl Decision {
     /// Creates a decision associated with a selected policy revision.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CoreError::RejectedOutcomeForPolicyDecision`] when `outcome`
-    /// is [`Outcome::Rejected`].
     pub fn new(
         project_id: ProjectId,
         destination_id: DestinationId,
         policy_revision: PolicyRevision,
-        outcome: Outcome,
+        resolution: DecisionResolution,
         applied_rules: Vec<AppliedRule>,
         detection_categories: BTreeSet<DetectionCategory>,
-    ) -> Result<Self, CoreError> {
-        if outcome == Outcome::Rejected {
-            return Err(CoreError::RejectedOutcomeForPolicyDecision);
-        }
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             project_id,
             destination_id,
             policy_revision,
-            outcome,
+            resolution,
             applied_rules,
             detection_categories,
-        })
+        }
     }
 
     /// Returns the project this decision belongs to.
@@ -168,9 +158,9 @@ impl Decision {
         &self.policy_revision
     }
 
-    /// Returns the outcome of this decision.
-    pub fn outcome(&self) -> Outcome {
-        self.outcome
+    /// Returns the internal resolution of this decision.
+    pub fn resolution(&self) -> DecisionResolution {
+        self.resolution
     }
 
     /// Returns the policy rules applied while making this decision.
@@ -267,7 +257,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             policy_revision()?,
-            Outcome::Forwarded,
+            DecisionResolution::Forwarded,
             vec![
                 AppliedRule::new(
                     RuleId::new("remove-sensitive-headers".to_owned())?,
@@ -279,7 +269,7 @@ mod tests {
                 ),
             ],
             BTreeSet::from([DetectionCategory::Jwt, DetectionCategory::ApiKey]),
-        )?;
+        );
 
         assert_eq!(decision.project_id().as_str(), "project-a");
         assert_eq!(decision.destination_id().as_str(), "destination-a");
@@ -288,7 +278,7 @@ mod tests {
             decision.policy_revision().digest().as_str(),
             "sha256:abc123"
         );
-        assert_eq!(decision.outcome(), Outcome::Forwarded);
+        assert_eq!(decision.resolution(), DecisionResolution::Forwarded);
         assert_eq!(
             decision
                 .applied_rules()
@@ -315,22 +305,6 @@ mod tests {
                 .detection_categories()
                 .contains(&DetectionCategory::ApiKey)
         );
-
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_rejected_outcome_for_a_policy_decision() -> Result<(), CoreError> {
-        let decision = Decision::new(
-            ProjectId::new("project-a".to_owned())?,
-            DestinationId::new("destination-a".to_owned())?,
-            policy_revision()?,
-            Outcome::Rejected,
-            Vec::new(),
-            BTreeSet::new(),
-        );
-
-        assert_eq!(decision, Err(CoreError::RejectedOutcomeForPolicyDecision));
 
         Ok(())
     }
