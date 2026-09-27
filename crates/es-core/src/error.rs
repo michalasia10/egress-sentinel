@@ -21,6 +21,10 @@ pub enum CoreError {
     #[error("policy digest cannot be empty")]
     EmptyPolicyDigest,
 
+    /// A policy rule identifier was empty.
+    #[error("rule identifier cannot be empty")]
+    EmptyRuleId,
+
     /// A policy decision was created with the ingress-only rejected outcome.
     #[error("a policy decision cannot have a rejected outcome")]
     RejectedOutcomeForPolicyDecision,

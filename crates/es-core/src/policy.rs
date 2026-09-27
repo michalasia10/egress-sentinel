@@ -57,6 +57,33 @@ impl PolicyDigest {
     }
 }
 
+/// A validated identifier of a policy rule applied to a payload.
+///
+/// A rule ID is safe audit metadata: it identifies the rule that acted without
+/// retaining the rule definition or any matched payload value.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RuleId(String);
+
+impl RuleId {
+    /// Creates a rule identifier from a non-empty string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::EmptyRuleId`] when `value` is empty.
+    pub fn new(value: String) -> Result<Self, CoreError> {
+        if value.is_empty() {
+            return Err(CoreError::EmptyRuleId);
+        }
+
+        Ok(Self(value))
+    }
+
+    /// Returns the rule identifier as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The version and exact-content digest that identify a policy revision.
 ///
 /// A revision combines the human-readable policy version with the digest of
@@ -86,7 +113,7 @@ impl PolicyRevision {
 
 #[cfg(test)]
 mod tests {
-    use super::{PolicyDigest, PolicyRevision, PolicyVersion};
+    use super::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId};
     use crate::error::CoreError;
 
     #[test]
@@ -122,6 +149,21 @@ mod tests {
             PolicyDigest::new(String::new()),
             Err(CoreError::EmptyPolicyDigest)
         );
+    }
+
+    #[test]
+    fn accepts_a_valid_rule_id() {
+        let rule_id = RuleId::new("remove-sensitive-headers".to_owned());
+
+        assert_eq!(
+            rule_id.as_ref().map(RuleId::as_str),
+            Ok("remove-sensitive-headers")
+        );
+    }
+
+    #[test]
+    fn rejects_an_empty_rule_id() {
+        assert_eq!(RuleId::new(String::new()), Err(CoreError::EmptyRuleId));
     }
 
     #[test]
