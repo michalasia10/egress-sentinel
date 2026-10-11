@@ -111,6 +111,28 @@ impl DecisionResolution {
     }
 }
 
+/// The size, in bytes, of a payload recorded as audit metadata.
+///
+/// This stores only the payload's size, never the payload contents. Its fixed
+/// `u64` representation keeps audit and SQLite values stable across
+/// architectures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PayloadSizeBytes(u64);
+
+impl PayloadSizeBytes {
+    /// Creates audit metadata for a payload with the given size in bytes.
+    ///
+    /// A zero-byte payload is valid.
+    pub fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Returns the payload size in bytes.
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+}
+
 /// A decision made after a project and its active policy revision were selected.
 ///
 /// An ingress rejection cannot be represented as a `Decision`, because no
@@ -238,7 +260,9 @@ impl Decision {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{AppliedAction, AppliedRule, Decision, DecisionResolution, Outcome};
+    use super::{
+        AppliedAction, AppliedRule, Decision, DecisionResolution, Outcome, PayloadSizeBytes,
+    };
     use crate::{
         detection::DetectionCategory,
         error::CoreError,
@@ -246,6 +270,20 @@ mod tests {
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
         protocol::SourceProtocol,
     };
+
+    #[test]
+    fn preserves_payload_size_in_bytes() {
+        let payload_size = PayloadSizeBytes::new(262_144);
+
+        assert_eq!(payload_size.as_u64(), 262_144);
+    }
+
+    #[test]
+    fn accepts_zero_byte_payload_size() {
+        let payload_size = PayloadSizeBytes::new(0);
+
+        assert_eq!(payload_size.as_u64(), 0);
+    }
 
     fn policy_revision() -> Result<PolicyRevision, CoreError> {
         let version = PolicyVersion::new(3)?;
