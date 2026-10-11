@@ -6,6 +6,7 @@ license = "Apache-2.0"
 
 [dependencies]
 es-core = { path = "../es-core" }
+serde = { workspace = true }
 thiserror = { workspace = true }
 yaml_serde = { workspace = true }
 
