@@ -27,7 +27,7 @@ that raw values do not appear in audit or application logs.
 
 ## Suggested initial dependencies
 
-Use `tokio`, `axum`, `hyper` or the Axum stack, `serde`, `serde_yaml`,
+Use `tokio`, `axum`, `hyper` or the Axum stack, `serde`, `yaml_serde`,
 `serde_json`, `thiserror`, `hmac`, `sha2`, `regex`, `rusqlite`, and `clap` only
 after confirming the exact crate capabilities and license policy. Keep protocol
 and parser dependencies behind their owning crates.
