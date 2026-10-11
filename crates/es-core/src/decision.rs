@@ -142,6 +142,7 @@ pub struct Decision {
     project_id: ProjectId,
     destination_id: DestinationId,
     source_protocol: SourceProtocol,
+    payload_size: PayloadSizeBytes,
     policy_revision: PolicyRevision,
     resolution: DecisionResolution,
     applied_rules: Vec<AppliedRule>,
@@ -155,10 +156,12 @@ impl Decision {
     ///
     /// Returns an error when the applied-rule sequence is inconsistent with
     /// `resolution` or contains a non-final terminal action.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         project_id: ProjectId,
         destination_id: DestinationId,
         source_protocol: SourceProtocol,
+        payload_size: PayloadSizeBytes,
         policy_revision: PolicyRevision,
         resolution: DecisionResolution,
         applied_rules: Vec<AppliedRule>,
@@ -192,6 +195,7 @@ impl Decision {
             project_id,
             destination_id,
             source_protocol,
+            payload_size,
             policy_revision,
             resolution,
             applied_rules,
@@ -212,6 +216,11 @@ impl Decision {
     /// Returns the protocol through which telemetry entered the gateway.
     pub fn source_protocol(&self) -> SourceProtocol {
         self.source_protocol
+    }
+
+    /// Returns the size of the payload in bytes.
+    pub fn payload_size(&self) -> PayloadSizeBytes {
+        self.payload_size
     }
 
     /// Returns the policy revision used to make this decision.
@@ -300,6 +309,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(0),
             policy_revision()?,
             resolution,
             applied_rules,
@@ -371,6 +381,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(262_144),
             policy_revision()?,
             DecisionResolution::Forwarded,
             vec![
@@ -389,6 +400,7 @@ mod tests {
         assert_eq!(decision.project_id().as_str(), "project-a");
         assert_eq!(decision.destination_id().as_str(), "destination-a");
         assert_eq!(decision.source_protocol(), SourceProtocol::SentryEnvelope);
+        assert_eq!(decision.payload_size(), PayloadSizeBytes::new(262_144));
         assert_eq!(decision.policy_revision().version().as_u64(), 3);
         assert_eq!(
             decision.policy_revision().digest().as_str(),
@@ -431,6 +443,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(0),
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![AppliedRule::new(
@@ -454,6 +467,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(0),
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![AppliedRule::new(
@@ -477,6 +491,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(0),
             policy_revision()?,
             DecisionResolution::Forwarded,
             vec![AppliedRule::new(
@@ -497,6 +512,7 @@ mod tests {
             ProjectId::new("project-a".to_owned())?,
             DestinationId::new("destination-a".to_owned())?,
             SourceProtocol::SentryEnvelope,
+            PayloadSizeBytes::new(0),
             policy_revision()?,
             DecisionResolution::TerminatedByPolicy,
             vec![
