@@ -101,6 +101,8 @@ impl Forwarder {
         if destination.id != selected_destination.as_str() {
             return Err(ForwardError::DestinationMismatch);
         }
+        // TODO(SEN-22): Move protocol-specific validation and request construction behind a
+        // Sentry adapter before adding another outbound protocol.
         if destination.protocol != Protocol::Sentry {
             return Err(ForwardError::UnsupportedProtocol);
         }
