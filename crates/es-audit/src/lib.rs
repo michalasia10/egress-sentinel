@@ -1,5 +1,7 @@
 //! Safe decision metadata persistence.
 
+mod record;
 mod store;
 
-pub use store::{AuditError, DecisionAuditRecord, SqliteAuditStore};
+pub use record::{AuditError, DecisionAuditRecord};
+pub use store::SqliteAuditStore;
