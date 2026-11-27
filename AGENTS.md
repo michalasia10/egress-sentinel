@@ -42,7 +42,8 @@ Rust formatting and repository checks are configured in:
 - Keep `lib.rs` limited to crate documentation, module declarations, and
   public exports. Put implementation and tests in modules organized around
   cohesive responsibilities; do not place an entire crate's logic in
-  `lib.rs`.
+  `lib.rs`. The pre-commit `lib-rs-layout` check enforces this boundary; Clippy
+  has no built-in lint for restricting item kinds by source file.
 
 ## Commit conventions
 
