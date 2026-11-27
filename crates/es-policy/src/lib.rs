@@ -14,4 +14,7 @@ pub use error::{
     DestinationCause, DestinationError, DestinationField, LimitsCause, LimitsError, LimitsField,
     PolicyError, RuleCause, RuleError, RuleField,
 };
-pub use model::{Action, Destination, Limits, Match, Matcher, Policy, Protocol, Rule, Security};
+pub use evaluate::{Evaluation, EvaluationError, EvaluationStatus};
+pub use model::{
+    Action, Destination, Limits, Match, Matcher, Policy, Protocol, Rule, RuleAction, Security,
+};

@@ -2,6 +2,7 @@
 
 use serde_json_path::JsonPath;
 use std::fmt::{self, Display, Formatter};
+use std::num::NonZeroU64;
 /// A validated policy ready for activation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
@@ -40,15 +41,41 @@ pub struct Rule {
     /// Selector used to determine whether the rule applies.
     pub matcher: Matcher,
     /// Transformation or terminal action to perform.
-    pub action: Action,
-    /// Local deployment key identifier, never key material.
-    pub key_ref: Option<String>,
-    /// Fixed replacement marker, when the action is `replace`.
-    pub marker: Option<String>,
-    /// Number of value characters to preserve, when the action is `mask`.
-    pub preserve: Option<u64>,
-    /// Approved destination identifier, when the action is `route`.
-    pub destination: Option<String>,
+    pub action: RuleAction,
+}
+
+/// A validated action and the parameters that action requires.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuleAction {
+    /// Remove the matching field.
+    Remove,
+    /// Replace the matching value with a fixed marker.
+    Replace { marker: String },
+    /// Preserve a nonzero number of leading characters and mask the rest.
+    Mask { preserve: NonZeroU64 },
+    /// Produce a stable pseudonym using a local key reference.
+    HmacSha256 { key_ref: String },
+    /// Reject the complete event.
+    DropEvent,
+    /// Do not forward the event and record a safe audit outcome.
+    Quarantine,
+    /// Send the sanitized event to an approved destination.
+    Route { destination: String },
+}
+
+impl RuleAction {
+    /// Returns the kind of action represented by this validated rule action.
+    pub fn kind(&self) -> Action {
+        match self {
+            Self::Remove => Action::Remove,
+            Self::Replace { .. } => Action::Replace,
+            Self::Mask { .. } => Action::Mask,
+            Self::HmacSha256 { .. } => Action::HmacSha256,
+            Self::DropEvent => Action::DropEvent,
+            Self::Quarantine => Action::Quarantine,
+            Self::Route { .. } => Action::Route,
+        }
+    }
 }
 /// A rule selector based on fields or sensitive-value detection.
 #[derive(Clone, Debug, PartialEq, Eq)]

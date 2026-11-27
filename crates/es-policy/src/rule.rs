@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::{
     destination::DestinationCatalog,
     error::{PolicyError, RuleCause, RuleError, RuleField},
-    model::{Action, Match, Matcher, Rule},
+    model::{Action, Match, Matcher, Rule, RuleAction},
     source::{RawAction, RawDetect, RawMatch, RawRule},
 };
 
@@ -59,7 +59,7 @@ impl Rule {
         }
         let matcher = Matcher::from_raw(raw.match_, raw.detect)?;
         let action = raw.action.into();
-        RuleAction::new(
+        RuleAction::from_raw(
             action,
             raw.key_ref,
             raw.marker,
@@ -67,14 +67,10 @@ impl Rule {
             raw.destination,
             destinations,
         )
-        .map(|parameters| Self {
+        .map(|action| Self {
             id: raw.id,
             matcher,
-            action: parameters.action,
-            key_ref: parameters.key_ref,
-            marker: parameters.marker,
-            preserve: parameters.preserve,
-            destination: parameters.destination,
+            action,
         })
     }
 }
@@ -166,16 +162,8 @@ fn invalid_json_path(field: RuleField) -> PolicyError {
     })
 }
 
-struct RuleAction {
-    action: Action,
-    key_ref: Option<String>,
-    marker: Option<String>,
-    preserve: Option<u64>,
-    destination: Option<String>,
-}
-
 impl RuleAction {
-    fn new(
+    fn from_raw(
         action: Action,
         key_ref: Option<String>,
         marker: Option<String>,
@@ -260,12 +248,36 @@ impl RuleAction {
                 cause: RuleCause::MustBePositive,
             }));
         }
-        Ok(Self {
-            action,
-            key_ref,
-            marker,
-            preserve,
-            destination,
+        Ok(match action {
+            Action::Remove => Self::Remove,
+            Action::Replace => Self::Replace {
+                marker: marker.ok_or(PolicyError::Rule(RuleError::Invalid {
+                    field: RuleField::Marker,
+                    cause: RuleCause::RequiredForAction(action),
+                }))?,
+            },
+            Action::Mask => Self::Mask {
+                preserve: std::num::NonZeroU64::new(preserve.unwrap_or_default()).ok_or(
+                    PolicyError::Rule(RuleError::Invalid {
+                        field: RuleField::Preserve,
+                        cause: RuleCause::MustBePositive,
+                    }),
+                )?,
+            },
+            Action::HmacSha256 => Self::HmacSha256 {
+                key_ref: key_ref.ok_or(PolicyError::Rule(RuleError::Invalid {
+                    field: RuleField::KeyRef,
+                    cause: RuleCause::RequiredForAction(action),
+                }))?,
+            },
+            Action::DropEvent => Self::DropEvent,
+            Action::Quarantine => Self::Quarantine,
+            Action::Route => Self::Route {
+                destination: destination.ok_or(PolicyError::Rule(RuleError::Invalid {
+                    field: RuleField::Destination,
+                    cause: RuleCause::RequiredForAction(action),
+                }))?,
+            },
         })
     }
 }
