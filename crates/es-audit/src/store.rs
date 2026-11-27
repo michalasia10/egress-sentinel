@@ -94,7 +94,7 @@ impl SqliteAuditStore {
         timestamp_unix_ms: i64,
         decision: &Decision,
     ) -> Result<(), AuditError> {
-        DecisionAuditRecord::from_decision(timestamp_unix_ms, decision)?
+        DecisionAuditRecord::new(timestamp_unix_ms, decision)?
             .insert(&self.pool)
             .await
     }
@@ -115,7 +115,7 @@ struct DecisionAuditRecord {
 }
 
 impl DecisionAuditRecord {
-    fn from_decision(timestamp_unix_ms: i64, decision: &Decision) -> Result<Self, AuditError> {
+    fn new(timestamp_unix_ms: i64, decision: &Decision) -> Result<Self, AuditError> {
         let record = Self {
             timestamp_unix_ms,
             project_id: decision
@@ -155,21 +155,20 @@ impl DecisionAuditRecord {
             payload_size_bytes: i64::try_from(decision.payload_size().as_u64())
                 .map_err(|_| AuditError::PayloadSizeOutOfRange)?,
         };
-        record.validate()?;
-        Ok(record)
-    }
-
-    fn validate(&self) -> Result<(), AuditError> {
         for (field, value, maximum) in [
-            ("project_id", self.project_id.as_str(), MAX_IDENTIFIER_BYTES),
+            (
+                "project_id",
+                record.project_id.as_str(),
+                MAX_IDENTIFIER_BYTES,
+            ),
             (
                 "destination_id",
-                self.destination_id.as_str(),
+                record.destination_id.as_str(),
                 MAX_IDENTIFIER_BYTES,
             ),
             (
                 "policy_digest",
-                self.policy_digest.as_str(),
+                record.policy_digest.as_str(),
                 MAX_DIGEST_BYTES,
             ),
         ] {
@@ -177,10 +176,10 @@ impl DecisionAuditRecord {
                 return Err(AuditError::FieldTooLong { field, maximum });
             }
         }
-        if self.applied_rule_ids.len() > MAX_RULES {
+        if record.applied_rule_ids.len() > MAX_RULES {
             return Err(AuditError::TooManyRules);
         }
-        for rule_id in &self.applied_rule_ids {
+        for rule_id in &record.applied_rule_ids {
             if rule_id.len() > MAX_IDENTIFIER_BYTES {
                 return Err(AuditError::FieldTooLong {
                     field: "rule_id",
@@ -188,7 +187,7 @@ impl DecisionAuditRecord {
                 });
             }
         }
-        Ok(())
+        Ok(record)
     }
 
     async fn insert(&self, pool: &SqlitePool) -> Result<(), AuditError> {
