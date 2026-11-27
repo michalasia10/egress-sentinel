@@ -39,6 +39,10 @@ Rust formatting and repository checks are configured in:
   when it improves readability without changing the contract.
 - Keep the main operation flow short and readable, and place validation details
   on the types they concern.
+- Keep `lib.rs` limited to crate documentation, module declarations, and
+  public exports. Put implementation and tests in modules organized around
+  cohesive responsibilities; do not place an entire crate's logic in
+  `lib.rs`.
 
 ## Commit conventions
 
