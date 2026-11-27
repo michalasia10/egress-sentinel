@@ -1,8 +1,8 @@
 //! Deterministic detection of basic secrets in normalized JSON data.
 
-use crate::validators::{RULES, is_well_formed_jwt};
+use crate::validators::{JWT_PATTERN, RULES, is_well_formed_jwt_candidate};
 use es_core::detection::DetectionCategory;
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -31,6 +31,7 @@ impl Finding {
 #[derive(Debug)]
 pub struct SecretDetector {
     rules: RegexSet,
+    jwt_candidates: Regex,
 }
 
 impl SecretDetector {
@@ -40,7 +41,11 @@ impl SecretDetector {
     /// built-in expression fails visibly instead of silently disabling detection.
     pub fn new() -> Result<Self, regex::Error> {
         let rules = RegexSet::new(RULES.iter().map(|rule| rule.pattern))?;
-        Ok(Self { rules })
+        let jwt_candidates = Regex::new(JWT_PATTERN)?;
+        Ok(Self {
+            rules,
+            jwt_candidates,
+        })
     }
 
     /// Scans every normalized string and returns unique category and field pairs.
@@ -84,8 +89,12 @@ impl SecretDetector {
             .iter()
             .filter_map(|index| {
                 let rule = &RULES[index];
-                (rule.category != DetectionCategory::Jwt || is_well_formed_jwt(text))
-                    .then_some(rule.category)
+                (rule.category != DetectionCategory::Jwt
+                    || self
+                        .jwt_candidates
+                        .find_iter(text)
+                        .any(|candidate| is_well_formed_jwt_candidate(candidate.as_str())))
+                .then_some(rule.category)
             })
             .collect()
     }
@@ -157,6 +166,30 @@ mod tests {
         let findings = detector.detect(&event);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].field(), "/sensitive~1name~0");
+    }
+
+    #[test]
+    fn jwt_shape_and_structure_must_belong_to_the_same_candidate() {
+        let event = json!({
+            "mixed": "eyJhbGciOiJIUzI1NiJ9.not-json-payload.signature1234 eyJhbGciOiJIUzI1NiJ9.e30.c2ln"
+        });
+
+        let Some(detector) = detector() else {
+            return;
+        };
+        assert!(detector.detect(&event).is_empty());
+    }
+
+    #[test]
+    fn detects_a_structurally_valid_jwt_candidate() {
+        let event = json!({
+            "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature1234"
+        });
+
+        let Some(detector) = detector() else {
+            return;
+        };
+        assert_eq!(detector.detect(&event).len(), 1);
     }
 
     #[test]
