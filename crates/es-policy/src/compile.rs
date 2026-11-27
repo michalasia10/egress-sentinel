@@ -61,6 +61,9 @@ impl From<RawSecurity> for Security {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    use crate::error::{RuleCause, RuleError, RuleField};
+    use crate::model::Action;
+
     use sha2::{Digest, Sha256};
 
     use super::compile_yaml;
@@ -100,11 +103,54 @@ mod tests {
         );
 
         let error = compile_yaml(&source).expect_err("zero preserve count");
-        assert!(
-            error
-                .to_string()
-                .contains("rules.preserve")
+        assert_eq!(
+            error,
+            crate::error::PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Preserve,
+                cause: RuleCause::MustBePositive,
+            })
         );
+    }
+
+    #[test]
+    fn action_parameters_must_match_the_selected_action() {
+        for (rule, expected_field, expected_cause) in [
+            (
+                "action: replace",
+                RuleField::Marker,
+                RuleCause::RequiredForAction(Action::Replace),
+            ),
+            (
+                "action: remove\n    marker: redacted",
+                RuleField::Marker,
+                RuleCause::ForbiddenForAction(Action::Remove),
+            ),
+            (
+                "action: hmac_sha256",
+                RuleField::KeyRef,
+                RuleCause::RequiredForAction(Action::HmacSha256),
+            ),
+            (
+                "action: route",
+                RuleField::Destination,
+                RuleCause::RequiredForAction(Action::Route),
+            ),
+        ] {
+            let source = VALID_POLICY.replace(
+                "rules: []",
+                &format!(
+                    "rules:\n  - id: parameter-check\n    match:\n      json_path: $.user.id\n    {rule}"
+                ),
+            );
+            let error = compile_yaml(&source).expect_err("invalid action parameters");
+            assert_eq!(
+                error,
+                crate::error::PolicyError::Rule(RuleError::Invalid {
+                    field: expected_field,
+                    cause: expected_cause,
+                })
+            );
+        }
     }
 
     #[test]
