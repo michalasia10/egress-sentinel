@@ -26,6 +26,17 @@ pub enum PolicyError {
     Limits(LimitsError),
 }
 
+/// Failures that prevent a policy evaluation from completing.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum EvaluationError {
+    /// A matching HMAC rule referred to key material absent from local configuration.
+    #[error("local key material for a matching policy rule is unavailable")]
+    MissingKey,
+    /// The HMAC implementation rejected key material.
+    #[error("local key material for a matching policy rule is invalid")]
+    InvalidKey,
+}
+
 /// Errors owned by a destination declaration or catalog.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DestinationError {
