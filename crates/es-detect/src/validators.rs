@@ -7,6 +7,9 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use es_core::detection::DetectionCategory;
 use serde_json::Value;
 
+pub(super) const JWT_PATTERN: &str =
+    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b";
+
 pub(super) struct Rule {
     pub(super) category: DetectionCategory,
     pub(super) pattern: &'static str,
@@ -203,20 +206,13 @@ pub(super) const RULES: &[Rule] = &[
     // JWTs receive structural validation after this prefilter match.
     Rule {
         category: DetectionCategory::Jwt,
-        pattern: r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
+        pattern: JWT_PATTERN,
     },
 ];
 
 /// Rejects JWT-shaped strings unless the header and payload are base64url JSON
 /// objects and the header contains a string `alg` field.
-pub(super) fn is_well_formed_jwt(text: &str) -> bool {
-    text.split(|character: char| {
-        !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
-    })
-    .any(is_well_formed_jwt_candidate)
-}
-
-fn is_well_formed_jwt_candidate(candidate: &str) -> bool {
+pub(super) fn is_well_formed_jwt_candidate(candidate: &str) -> bool {
     let mut segments = candidate.split('.');
     let (Some(header), Some(payload), Some(signature), None) = (
         segments.next(),
@@ -264,13 +260,13 @@ mod tests {
         let header = encode(r#"{"alg":"HS256"}"#);
         let payload = encode(r#"{"sub":"123"}"#);
         let valid = format!("{header}.{payload}.c2lnbmF0dXJl");
-        assert!(is_well_formed_jwt(&format!("Bearer {valid}")));
+        assert!(is_well_formed_jwt_candidate(&valid));
 
         let invalid_header = encode(r#"{"typ":"JWT"}"#);
-        assert!(!is_well_formed_jwt(&format!(
+        assert!(!is_well_formed_jwt_candidate(&format!(
             "{invalid_header}.{payload}.c2lnbmF0dXJl"
         )));
-        assert!(!is_well_formed_jwt(
+        assert!(!is_well_formed_jwt_candidate(
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ."
         ));
     }
