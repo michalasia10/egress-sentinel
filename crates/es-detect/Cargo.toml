@@ -1,0 +1,14 @@
+[package]
+name = "es-detect"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+base64 = "0.22"
+es-core = { path = "../es-core" }
+regex = "1"
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

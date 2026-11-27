@@ -39,9 +39,16 @@ Rust formatting and repository checks are configured in:
   when it improves readability without changing the contract.
 - Keep the main operation flow short and readable, and place validation details
   on the types they concern.
+- Keep `lib.rs` limited to crate documentation, module declarations, and
+  public exports. Put implementation and tests in modules organized around
+  cohesive responsibilities; do not place an entire crate's logic in
+  `lib.rs`. The pre-commit `lib-rs-layout` check enforces this boundary; Clippy
+  has no built-in lint for restricting item kinds by source file.
 
 ## Commit conventions
 
+- After each substantial, coherent change, create a commit before moving on to
+  unrelated work. Do not leave completed implementation work uncommitted.
 - Commit small, meaningful changes that each represent one coherent semantic
   change.
 - Use Conventional Commit prefixes: `fix` for bug fixes, `feat` for new

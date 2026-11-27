@@ -8,6 +8,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: lib-rs-layout
+        name: Keep lib.rs limited to module declarations and exports
+        entry: python3 scripts/check-lib-rs-layout.py
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: cargo-clippy
         name: Cargo Clippy
         entry: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
