@@ -170,14 +170,24 @@ impl Decision {
         if applied_rules
             .iter()
             .take(applied_rules.len().saturating_sub(1))
-            .any(|applied_rule| applied_rule.action().terminal_outcome().is_some())
+            .any(|applied_rule| {
+                applied_rule
+                    .action()
+                    .terminal_outcome()
+                    .is_some()
+            })
         {
             return Err(CoreError::NonFinalTerminalAction);
         }
 
         let has_terminal_final_action = applied_rules
             .last()
-            .is_some_and(|applied_rule| applied_rule.action().terminal_outcome().is_some());
+            .is_some_and(|applied_rule| {
+                applied_rule
+                    .action()
+                    .terminal_outcome()
+                    .is_some()
+            });
 
         match resolution {
             DecisionResolution::TerminatedByPolicy if !has_terminal_final_action => {
@@ -401,9 +411,18 @@ mod tests {
         assert_eq!(decision.destination_id().as_str(), "destination-a");
         assert_eq!(decision.source_protocol(), SourceProtocol::SentryEnvelope);
         assert_eq!(decision.payload_size(), PayloadSizeBytes::new(262_144));
-        assert_eq!(decision.policy_revision().version().as_u64(), 3);
         assert_eq!(
-            decision.policy_revision().digest().as_str(),
+            decision
+                .policy_revision()
+                .version()
+                .as_u64(),
+            3
+        );
+        assert_eq!(
+            decision
+                .policy_revision()
+                .digest()
+                .as_str(),
             "sha256:abc123"
         );
         assert_eq!(decision.resolution(), DecisionResolution::Forwarded);

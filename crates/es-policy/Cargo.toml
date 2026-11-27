@@ -9,6 +9,7 @@ es-core = { path = "../es-core" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 yaml_serde = { workspace = true }
+validator = { workspace = true }
 
 [lints]
 workspace = true
