@@ -50,17 +50,29 @@ pub enum RuleAction {
     /// Remove the matching field.
     Remove,
     /// Replace the matching value with a fixed marker.
-    Replace { marker: String },
+    Replace {
+        /// Fixed value written in place of the match.
+        marker: String,
+    },
     /// Preserve a nonzero number of leading characters and mask the rest.
-    Mask { preserve: NonZeroU64 },
+    Mask {
+        /// Number of leading characters to keep visible.
+        preserve: NonZeroU64,
+    },
     /// Produce a stable pseudonym using a local key reference.
-    HmacSha256 { key_ref: String },
+    HmacSha256 {
+        /// Identifier of the locally configured HMAC key.
+        key_ref: String,
+    },
     /// Reject the complete event.
     DropEvent,
     /// Do not forward the event and record a safe audit outcome.
     Quarantine,
     /// Send the sanitized event to an approved destination.
-    Route { destination: String },
+    Route {
+        /// Identifier of the approved destination.
+        destination: String,
+    },
 }
 
 impl RuleAction {

@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Check rustfmt
+        run: cargo fmt --all -- --check
+
+  audit:
+    name: RustSec advisory audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit locked dependencies
+        run: cargo audit --file Cargo.lock
+
+  check:
+    name: Check workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Check all workspace targets
+        run: cargo check --workspace --all-targets --all-features --locked
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Run workspace tests
+        run: cargo test --workspace --all-features --locked
+
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  release-build:
+    name: Release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Build release artifacts
+        run: cargo build --workspace --release --locked
