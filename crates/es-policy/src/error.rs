@@ -153,6 +153,9 @@ pub enum RuleCause {
     /// A rule matcher is missing or has conflicting variants.
     #[error("must contain exactly one valid matcher")]
     InvalidMatcher,
+    /// A JSONPath selector could not be compiled.
+    #[error("must be a valid JSONPath expression")]
+    InvalidJsonPath,
     /// A parameter is required by the selected action.
     #[error("required only for {0}")]
     RequiredForAction(Action),
