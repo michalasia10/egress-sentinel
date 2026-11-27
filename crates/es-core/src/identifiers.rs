@@ -59,7 +59,12 @@ mod tests {
     fn accepts_a_single_character_project_id() {
         let project_id = ProjectId::new("p".to_owned());
 
-        assert_eq!(project_id.as_ref().map(ProjectId::as_str), Ok("p"));
+        assert_eq!(
+            project_id
+                .as_ref()
+                .map(ProjectId::as_str),
+            Ok("p")
+        );
     }
 
     #[test]
@@ -74,7 +79,9 @@ mod tests {
         let destination_id = DestinationId::new("logs-eu".to_owned());
 
         assert_eq!(
-            destination_id.as_ref().map(DestinationId::as_str),
+            destination_id
+                .as_ref()
+                .map(DestinationId::as_str),
             Ok("logs-eu")
         );
     }

@@ -120,7 +120,12 @@ mod tests {
     fn preserves_a_positive_policy_version() {
         let policy_version = PolicyVersion::new(1);
 
-        assert_eq!(policy_version.as_ref().map(PolicyVersion::as_u64), Ok(1));
+        assert_eq!(
+            policy_version
+                .as_ref()
+                .map(PolicyVersion::as_u64),
+            Ok(1)
+        );
     }
 
     #[test]
@@ -138,7 +143,9 @@ mod tests {
         );
 
         assert_eq!(
-            policy_digest.as_ref().map(PolicyDigest::as_str),
+            policy_digest
+                .as_ref()
+                .map(PolicyDigest::as_str),
             Ok("sha256:3a7bd3e2360a3d80e6f96f51c2a5f97884a7d6f5c7d2e9f0a1b2c3d4e5f60718")
         );
     }
