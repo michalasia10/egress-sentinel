@@ -264,7 +264,7 @@ impl RuleAction {
                     .get(key_ref)
                     .ok_or(EvaluationError::MissingKey)?;
                 if let Some(value) = path.get_mut(&mut event.0) {
-                    let input = match value {
+                    let input = match &*value {
                         Value::String(text) => text.clone(),
                         other => other.to_string(),
                     };
