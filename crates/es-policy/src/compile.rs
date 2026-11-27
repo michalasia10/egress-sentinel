@@ -7,6 +7,7 @@ use crate::{
     rule::RuleCatalog,
     source::{RawLimits, RawPolicy, RawSecurity},
 };
+use sha2::{Digest, Sha256};
 use validator::Validate;
 
 /// Parses and validates a complete policy. The input is never retained in errors.
@@ -14,13 +15,14 @@ pub fn compile_yaml(source: &str) -> Result<Policy, PolicyError> {
     let raw: RawPolicy = yaml_serde::from_str(source).map_err(|_| PolicyError::Malformed)?;
     raw.validate()
         .map_err(|_| PolicyError::Malformed)?;
-    PolicyCompiler::compile(raw)
+    let digest = format!("sha256:{}", hex::encode(Sha256::digest(source.as_bytes())));
+    PolicyCompiler::compile(raw, digest)
 }
 
 struct PolicyCompiler;
 
 impl PolicyCompiler {
-    fn compile(raw: RawPolicy) -> Result<Policy, PolicyError> {
+    fn compile(raw: RawPolicy, digest: String) -> Result<Policy, PolicyError> {
         Self::validate_version(raw.version)?;
         let destinations = DestinationCatalog::compile(raw.destinations)?;
         let rules = RuleCatalog::compile(raw.rules, &destinations)?;
@@ -31,6 +33,7 @@ impl PolicyCompiler {
             .unwrap_or_default();
         Ok(Policy {
             version: raw.version,
+            digest,
             destinations: destinations.into_values(),
             rules: rules.into_values(),
             limits,
@@ -51,6 +54,77 @@ impl From<RawSecurity> for Security {
         Self {
             reject_unknown_projects: value.reject_unknown_projects,
             reject_attachments: value.reject_attachments,
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    use super::compile_yaml;
+
+    const VALID_POLICY: &str = "version: 1\ndestinations:\n  - id: primary\n    protocol: sentry\n    allowed_hosts: [events.example.com]\nrules: []\n";
+
+    #[test]
+    fn compilation_identifies_the_exact_source_revision() {
+        let policy = compile_yaml(VALID_POLICY).expect("valid policy");
+        let reformatted = compile_yaml(&VALID_POLICY.replace("version: 1", "version: 1 "))
+            .expect("valid reformatted policy");
+
+        assert_eq!(policy.version, 1);
+        assert_eq!(
+            policy.digest,
+            format!(
+                "sha256:{}",
+                hex::encode(Sha256::digest(VALID_POLICY.as_bytes()))
+            )
+        );
+        assert_ne!(policy.digest, reformatted.digest);
+    }
+
+    #[test]
+    fn malformed_yaml_is_rejected_without_returning_source() {
+        let error = compile_yaml("version: [").expect_err("malformed YAML");
+
+        assert_eq!(error.to_string(), "policy document is malformed");
+        assert!(!error.to_string().contains("version: ["));
+    }
+
+    #[test]
+    fn invalid_rule_parameters_are_rejected() {
+        let source = VALID_POLICY.replace(
+            "rules: []",
+            "rules:\n  - id: bad-mask\n    match:\n      json_path: $.user.id\n    action: mask\n    preserve: 0",
+        );
+
+        let error = compile_yaml(&source).expect_err("zero preserve count");
+        assert!(
+            error
+                .to_string()
+                .contains("rules.preserve")
+        );
+    }
+
+    #[test]
+    fn destination_allow_list_rejects_hostname_confusion_attempts() {
+        let policy = compile_yaml(VALID_POLICY).expect("valid policy");
+        let destination = &policy.destinations[0];
+
+        assert!(destination.allows_host("EVENTS.EXAMPLE.COM"));
+        for host in [
+            "events.example.com.attacker.test",
+            "attacker-events.example.com",
+            "events.example.com.",
+            "events.example.com@attacker.test",
+            "events.example.com:443",
+            "127.0.0.1",
+        ] {
+            assert!(
+                !destination.allows_host(host),
+                "unexpectedly allowed {host}"
+            );
         }
     }
 }

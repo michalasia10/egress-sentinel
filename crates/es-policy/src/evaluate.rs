@@ -24,6 +24,10 @@ pub enum EvaluationStatus {
 /// The deterministic result of applying a compiled policy.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
+    /// Policy format version that produced this decision.
+    pub policy_version: u64,
+    /// SHA-256 digest of the exact policy YAML source that produced this decision.
+    pub policy_digest: String,
     /// The sanitized normalized event. Terminal actions retain the data for local handling.
     pub data: Value,
     /// IDs of rules that matched, in policy declaration order.
@@ -71,6 +75,8 @@ impl Policy {
             }
         }
         Ok(Evaluation {
+            policy_version: self.version,
+            policy_digest: self.digest.clone(),
             data: event.into_value(),
             applied_rule_ids,
             status,
@@ -97,5 +103,55 @@ impl Rule {
             action => event.apply(action, fields, local_keys)?,
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use serde_json::json;
+
+    use crate::{compile_yaml, evaluate::EvaluationStatus};
+
+    #[test]
+    fn decision_carries_the_policy_revision_and_terminal_action_stops_later_rules() {
+        let source = "version: 1\ndestinations:\n  - id: primary\n    protocol: sentry\n    allowed_hosts: [events.example.com]\nrules:\n  - id: reject\n    match:\n      json_path: $.user\n    action: drop_event\n  - id: should-not-run\n    match:\n      json_path: $.user.email\n    action: remove\n";
+        let policy = compile_yaml(source).expect("valid policy");
+
+        let decision = policy
+            .evaluate(
+                &json!({"user": {"email": "private@example.com"}}),
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            )
+            .expect("evaluation succeeds");
+
+        assert_eq!(decision.policy_version, policy.version);
+        assert_eq!(decision.policy_digest, policy.digest);
+        assert_eq!(decision.status, EvaluationStatus::Dropped);
+        assert_eq!(decision.applied_rule_ids, ["reject"]);
+        assert_eq!(decision.data["user"]["email"], "private@example.com");
+    }
+
+    #[test]
+    fn quarantine_is_terminal_and_identifies_its_policy_revision() {
+        let source = "version: 1\ndestinations:\n  - id: primary\n    protocol: sentry\n    allowed_hosts: [events.example.com]\nrules:\n  - id: isolate\n    match:\n      json_path: $.secret\n    action: quarantine\n  - id: should-not-run\n    match:\n      json_path: $.secret\n    action: remove\n";
+        let policy = compile_yaml(source).expect("valid policy");
+
+        let decision = policy
+            .evaluate(
+                &json!({"secret": "value"}),
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            )
+            .expect("evaluation succeeds");
+
+        assert_eq!(decision.policy_version, 1);
+        assert_eq!(decision.policy_digest, policy.digest);
+        assert_eq!(decision.status, EvaluationStatus::Quarantined);
+        assert_eq!(decision.applied_rule_ids, ["isolate"]);
+        assert_eq!(decision.data["secret"], "value");
     }
 }

@@ -8,3 +8,7 @@ returns decisions and transformation instructions; it never fetches key material
 forwards telemetry, writes audit rows, or parses transport-specific requests.
 
 It depends on `es-core` and policy-format libraries only.
+
+Compiled policies retain the format version and SHA-256 digest of their exact
+YAML source. Evaluation results carry the same revision metadata for decision
+attribution.
