@@ -36,8 +36,7 @@ pub(super) struct RawRule {
     #[serde(default)]
     #[validate(nested)]
     pub(super) detect: Option<RawDetect>,
-    #[validate(length(min = 1))]
-    pub(super) action: String,
+    pub(super) action: RawAction,
     #[serde(default)]
     pub(super) key_ref: Option<String>,
     #[serde(default)]
@@ -46,6 +45,17 @@ pub(super) struct RawRule {
     pub(super) preserve: Option<u64>,
     #[serde(default)]
     pub(super) destination: Option<String>,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RawAction {
+    Remove,
+    Replace,
+    Mask,
+    HmacSha256,
+    DropEvent,
+    Quarantine,
+    Route,
 }
 #[derive(Debug, Deserialize, Serialize, Validate)]
 #[serde(deny_unknown_fields)]

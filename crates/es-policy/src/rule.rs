@@ -6,7 +6,7 @@ use crate::{
     destination::DestinationCatalog,
     error::PolicyError,
     model::{Action, Match, Matcher, Rule},
-    source::{RawDetect, RawMatch, RawRule},
+    source::{RawAction, RawDetect, RawMatch, RawRule},
 };
 
 /// Owns rules in declaration order and prevents duplicate IDs.
@@ -57,7 +57,7 @@ impl Rule {
             return Err(PolicyError::Duplicate { field: "rules.id" });
         }
         let matcher = Matcher::from_raw(raw.match_, raw.detect)?;
-        let action = Action::parse(&raw.action)?;
+        let action = raw.action.into();
         RuleAction::new(
             action,
             raw.key_ref,
@@ -230,20 +230,16 @@ impl RuleAction {
     }
 }
 
-impl Action {
-    fn parse(value: &str) -> Result<Self, PolicyError> {
+impl From<RawAction> for Action {
+    fn from(value: RawAction) -> Self {
         match value {
-            "remove" => Ok(Self::Remove),
-            "replace" => Ok(Self::Replace),
-            "mask" => Ok(Self::Mask),
-            "hmac_sha256" => Ok(Self::HmacSha256),
-            "drop_event" => Ok(Self::DropEvent),
-            "quarantine" => Ok(Self::Quarantine),
-            "route" => Ok(Self::Route),
-            _ => Err(PolicyError::Invalid {
-                field: "rules.action",
-                reason: "unsupported action",
-            }),
+            RawAction::Remove => Self::Remove,
+            RawAction::Replace => Self::Replace,
+            RawAction::Mask => Self::Mask,
+            RawAction::HmacSha256 => Self::HmacSha256,
+            RawAction::DropEvent => Self::DropEvent,
+            RawAction::Quarantine => Self::Quarantine,
+            RawAction::Route => Self::Route,
         }
     }
 }
