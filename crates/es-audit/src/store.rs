@@ -251,6 +251,21 @@ mod tests {
         protocol::SourceProtocol,
     };
 
+    #[derive(Debug, PartialEq, sqlx::FromRow)]
+    struct StoredDecisionAudit {
+        timestamp_unix_ms: i64,
+        project_id: String,
+        source_protocol: String,
+        destination_id: String,
+        outcome: String,
+        policy_version: i64,
+        policy_digest: String,
+        applied_rule_ids: String,
+        detection_categories: String,
+        payload_size_bytes: i64,
+        raw_payload_stored: i64,
+    }
+
     fn sample_decision() -> Result<Decision, Box<dyn std::error::Error>> {
         Ok(Decision::new(
             ProjectId::new("project-a".to_owned())?,
@@ -279,19 +294,7 @@ mod tests {
             .record_decision(1_800_000_000_000, &decision)
             .await?;
 
-        let stored_values: (
-            i64,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-        ) = sqlx::query_as(
+        let stored_values = sqlx::query_as::<_, StoredDecisionAudit>(
             "SELECT timestamp_unix_ms, project_id, source_protocol, destination_id, outcome,
                     policy_version, policy_digest, applied_rule_ids, detection_categories,
                     payload_size_bytes, raw_payload_stored FROM decision_audit",
@@ -300,19 +303,19 @@ mod tests {
         .await?;
         assert_eq!(
             stored_values,
-            (
-                1_800_000_000_000,
-                "project-a".to_owned(),
-                "sentry_envelope".to_owned(),
-                "destination-a".to_owned(),
-                "forwarded".to_owned(),
-                7,
-                "sha256:abc123".to_owned(),
-                "[\"remove-token\"]".to_owned(),
-                "[\"jwt\",\"api_key\"]".to_owned(),
-                42,
-                0
-            )
+            StoredDecisionAudit {
+                timestamp_unix_ms: 1_800_000_000_000,
+                project_id: "project-a".to_owned(),
+                source_protocol: "sentry_envelope".to_owned(),
+                destination_id: "destination-a".to_owned(),
+                outcome: "forwarded".to_owned(),
+                policy_version: 7,
+                policy_digest: "sha256:abc123".to_owned(),
+                applied_rule_ids: "[\"remove-token\"]".to_owned(),
+                detection_categories: "[\"jwt\",\"api_key\"]".to_owned(),
+                payload_size_bytes: 42,
+                raw_payload_stored: 0,
+            }
         );
 
         let stored_values = format!("{stored_values:?}");
