@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    error::PolicyError,
+    error::{DestinationCause, DestinationError, DestinationField, PolicyError},
     model::{Destination, Protocol},
     source::RawDestination,
 };
@@ -17,10 +17,10 @@ pub(super) struct DestinationCatalog {
 impl DestinationCatalog {
     pub(super) fn compile(raw: Vec<RawDestination>) -> Result<Self, PolicyError> {
         if raw.is_empty() {
-            return Err(PolicyError::Invalid {
-                field: "destinations",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Destination(DestinationError::Invalid {
+                field: DestinationField::Collection,
+                cause: DestinationCause::Empty,
+            }));
         }
         let mut catalog = Self {
             ids: HashSet::new(),
@@ -53,23 +53,21 @@ impl Destination {
         declared_ids: &mut HashSet<String>,
     ) -> Result<Self, PolicyError> {
         if raw.id.trim().is_empty() {
-            return Err(PolicyError::Invalid {
-                field: "destinations.id",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Destination(DestinationError::Invalid {
+                field: DestinationField::Id,
+                cause: DestinationCause::Empty,
+            }));
         }
         if !declared_ids.insert(raw.id.clone()) {
-            return Err(PolicyError::Duplicate {
-                field: "destinations.id",
-            });
+            return Err(PolicyError::Destination(DestinationError::DuplicateId));
         }
         let protocol = match raw.protocol.as_str() {
             "sentry" => Protocol::Sentry,
             _ => {
-                return Err(PolicyError::Invalid {
-                    field: "destinations.protocol",
-                    reason: "unsupported protocol",
-                });
+                return Err(PolicyError::Destination(DestinationError::Invalid {
+                    field: DestinationField::Protocol,
+                    cause: DestinationCause::UnsupportedProtocol,
+                }));
             }
         };
         if raw.allowed_hosts.is_empty()
@@ -78,10 +76,10 @@ impl Destination {
                 .iter()
                 .any(|host| !is_hostname(host))
         {
-            return Err(PolicyError::Invalid {
-                field: "destinations.allowed_hosts",
-                reason: "must contain valid host names",
-            });
+            return Err(PolicyError::Destination(DestinationError::Invalid {
+                field: DestinationField::AllowedHosts,
+                cause: DestinationCause::InvalidHostname,
+            }));
         }
         Ok(Self {
             id: raw.id,

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::{
     destination::DestinationCatalog,
-    error::PolicyError,
+    error::{PolicyError, RuleCause, RuleError, RuleField},
     model::{Action, Match, Matcher, Rule},
     source::{RawAction, RawDetect, RawMatch, RawRule},
 };
@@ -48,13 +48,13 @@ impl Rule {
         destinations: &DestinationCatalog,
     ) -> Result<Self, PolicyError> {
         if raw.id.trim().is_empty() {
-            return Err(PolicyError::Invalid {
-                field: "rules.id",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Id,
+                cause: RuleCause::Empty,
+            }));
         }
         if !declared_ids.insert(raw.id.clone()) {
-            return Err(PolicyError::Duplicate { field: "rules.id" });
+            return Err(PolicyError::Rule(RuleError::DuplicateId));
         }
         let matcher = Matcher::from_raw(raw.match_, raw.detect)?;
         let action = raw.action.into();
@@ -94,10 +94,10 @@ impl Matcher {
             {
                 Ok(Self::Detect(detect.types))
             }
-            _ => Err(PolicyError::Invalid {
-                field: "rules",
-                reason: "must contain exactly one valid matcher",
-            }),
+            _ => Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Collection,
+                cause: RuleCause::InvalidMatcher,
+            })),
         }
     }
 }
@@ -109,36 +109,36 @@ impl Match {
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Invalid {
-                field: "rules.match.json_path",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::JsonPath,
+                cause: RuleCause::Empty,
+            }));
         }
         if raw
             .paths
             .iter()
             .any(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Invalid {
-                field: "rules.match.paths",
-                reason: "entries must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Paths,
+                cause: RuleCause::Empty,
+            }));
         }
         if raw
             .key_matches
             .iter()
             .any(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Invalid {
-                field: "rules.match.key_matches",
-                reason: "entries must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::KeyMatches,
+                cause: RuleCause::Empty,
+            }));
         }
         if raw.json_path.is_none() && raw.paths.is_empty() && raw.key_matches.is_empty() {
-            return Err(PolicyError::Invalid {
-                field: "rules",
-                reason: "must contain exactly one valid matcher",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Matcher,
+                cause: RuleCause::InvalidMatcher,
+            }));
         }
         Ok(Self {
             json_path: raw.json_path,
@@ -165,60 +165,82 @@ impl RuleAction {
         destination: Option<String>,
         destinations: &DestinationCatalog,
     ) -> Result<Self, PolicyError> {
-        if matches!(action, Action::HmacSha256) != key_ref.is_some() {
-            return Err(PolicyError::Invalid {
-                field: "rules.key_ref",
-                reason: "required only for hmac_sha256",
-            });
+        if matches!(action, Action::HmacSha256) && key_ref.is_none() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::KeyRef,
+                cause: RuleCause::RequiredForAction(action),
+            }));
         }
-        if matches!(action, Action::Replace) != marker.is_some() {
-            return Err(PolicyError::Invalid {
-                field: "rules.marker",
-                reason: "required only for replace",
-            });
+        if !matches!(action, Action::HmacSha256) && key_ref.is_some() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::KeyRef,
+                cause: RuleCause::ForbiddenForAction(action),
+            }));
         }
-        if matches!(action, Action::Mask) != preserve.is_some() {
-            return Err(PolicyError::Invalid {
-                field: "rules.preserve",
-                reason: "required only for mask",
-            });
+        if matches!(action, Action::Replace) && marker.is_none() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Marker,
+                cause: RuleCause::RequiredForAction(action),
+            }));
         }
-        if matches!(action, Action::Route) != destination.is_some() {
-            return Err(PolicyError::Invalid {
-                field: "rules.destination",
-                reason: "required only for route",
-            });
+        if !matches!(action, Action::Replace) && marker.is_some() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Marker,
+                cause: RuleCause::ForbiddenForAction(action),
+            }));
+        }
+        if matches!(action, Action::Mask) && preserve.is_none() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Preserve,
+                cause: RuleCause::RequiredForAction(action),
+            }));
+        }
+        if !matches!(action, Action::Mask) && preserve.is_some() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Preserve,
+                cause: RuleCause::ForbiddenForAction(action),
+            }));
+        }
+        if matches!(action, Action::Route) && destination.is_none() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Destination,
+                cause: RuleCause::RequiredForAction(action),
+            }));
+        }
+        if !matches!(action, Action::Route) && destination.is_some() {
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Destination,
+                cause: RuleCause::ForbiddenForAction(action),
+            }));
         }
         if let Some(destination) = &destination
             && !destinations.contains(destination)
         {
-            return Err(PolicyError::Unresolved {
-                field: "rules.destination",
-            });
+            return Err(PolicyError::Rule(RuleError::UnresolvedDestination));
         }
         if key_ref
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Invalid {
-                field: "rules.key_ref",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::KeyRef,
+                cause: RuleCause::Empty,
+            }));
         }
         if marker
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Invalid {
-                field: "rules.marker",
-                reason: "must not be empty",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Marker,
+                cause: RuleCause::Empty,
+            }));
         }
         if preserve == Some(0) {
-            return Err(PolicyError::Invalid {
-                field: "rules.preserve",
-                reason: "must be positive",
-            });
+            return Err(PolicyError::Rule(RuleError::Invalid {
+                field: RuleField::Preserve,
+                cause: RuleCause::MustBePositive,
+            }));
         }
         Ok(Self {
             action,

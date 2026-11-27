@@ -42,10 +42,7 @@ impl PolicyCompiler {
         if version == 1 {
             return Ok(());
         }
-        Err(PolicyError::Invalid {
-            field: "version",
-            reason: "unsupported version",
-        })
+        Err(PolicyError::InvalidVersion)
     }
 }
 

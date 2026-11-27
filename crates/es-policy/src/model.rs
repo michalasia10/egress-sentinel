@@ -1,4 +1,6 @@
 //! Validated policy model.
+
+use std::fmt::{self, Display, Formatter};
 /// A validated policy ready for activation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
@@ -66,7 +68,7 @@ pub struct Match {
     pub key_matches: Vec<String>,
 }
 /// Actions supported by the policy contract.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     /// Remove the matching field.
     Remove,
@@ -82,6 +84,20 @@ pub enum Action {
     Quarantine,
     /// Send the sanitized event to another approved destination.
     Route,
+}
+
+impl Display for Action {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Remove => "remove",
+            Self::Replace => "replace",
+            Self::Mask => "mask",
+            Self::HmacSha256 => "hmac_sha256",
+            Self::DropEvent => "drop_event",
+            Self::Quarantine => "quarantine",
+            Self::Route => "route",
+        })
+    }
 }
 /// Optional event and throughput limits.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

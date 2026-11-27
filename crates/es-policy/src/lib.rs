@@ -10,5 +10,8 @@ mod rule;
 mod source;
 
 pub use compile::compile_yaml;
-pub use error::PolicyError;
+pub use error::{
+    DestinationCause, DestinationError, DestinationField, LimitsCause, LimitsError, LimitsField,
+    PolicyError, RuleCause, RuleError, RuleField,
+};
 pub use model::{Action, Destination, Limits, Match, Matcher, Policy, Protocol, Rule, Security};

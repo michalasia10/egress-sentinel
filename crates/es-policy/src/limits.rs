@@ -1,7 +1,7 @@
 //! Policy limits and size parsing.
 
 use crate::{
-    error::PolicyError,
+    error::{LimitsCause, LimitsError, LimitsField, PolicyError},
     model::Limits,
     source::{RawLimits, RawSize},
 };
@@ -14,11 +14,11 @@ impl RawLimits {
             .transpose()?;
         validate_positive(
             self.max_string_field_length,
-            "limits.max_string_field_length",
+            LimitsField::MaxStringFieldLength,
         )?;
         validate_positive(
             self.events_per_minute_per_project,
-            "limits.events_per_minute_per_project",
+            LimitsField::EventsPerMinutePerProject,
         )?;
         Ok(Limits {
             max_event_size,
@@ -28,12 +28,12 @@ impl RawLimits {
     }
 }
 
-fn validate_positive(value: Option<u64>, field: &'static str) -> Result<(), PolicyError> {
+fn validate_positive(value: Option<u64>, field: LimitsField) -> Result<(), PolicyError> {
     if value == Some(0) {
-        return Err(PolicyError::Invalid {
+        return Err(PolicyError::Limits(LimitsError::Invalid {
             field,
-            reason: "must be positive",
-        });
+            cause: LimitsCause::MustBePositive,
+        }));
     }
     Ok(())
 }
@@ -51,23 +51,23 @@ fn parse_size(value: RawSize) -> Result<u64, PolicyError> {
                         .map(|v| (v, 1024 * 1024))
                 })
                 .or_else(|| text.strip_suffix('b').map(|v| (v, 1)))
-                .ok_or(PolicyError::Invalid {
-                    field: "limits.max_event_size",
-                    reason: "must use bytes, kb, or mb",
-                })?;
+                .ok_or(PolicyError::Limits(LimitsError::Invalid {
+                    field: LimitsField::MaxEventSize,
+                    cause: LimitsCause::InvalidSizeUnit,
+                }))?;
             number
                 .parse::<u64>()
                 .ok()
                 .filter(|value| *value > 0)
                 .and_then(|value| value.checked_mul(multiplier))
-                .ok_or(PolicyError::Invalid {
-                    field: "limits.max_event_size",
-                    reason: "must be a positive size",
-                })
+                .ok_or(PolicyError::Limits(LimitsError::Invalid {
+                    field: LimitsField::MaxEventSize,
+                    cause: LimitsCause::InvalidSize,
+                }))
         }
-        RawSize::Bytes(_) => Err(PolicyError::Invalid {
-            field: "limits.max_event_size",
-            reason: "must be positive",
-        }),
+        RawSize::Bytes(_) => Err(PolicyError::Limits(LimitsError::Invalid {
+            field: LimitsField::MaxEventSize,
+            cause: LimitsCause::MustBePositive,
+        })),
     }
 }
