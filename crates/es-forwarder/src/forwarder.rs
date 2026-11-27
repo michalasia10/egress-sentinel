@@ -105,12 +105,7 @@ impl Forwarder {
             return Err(ForwardError::UnsupportedProtocol);
         }
 
-        if !is_valid_hostname(approved_host)
-            || !destination
-                .allowed_hosts
-                .iter()
-                .any(|host| host.eq_ignore_ascii_case(approved_host))
-        {
+        if !destination.allows_host(approved_host) {
             return Err(ForwardError::UnapprovedHost);
         }
 
@@ -146,18 +141,4 @@ impl Forwarder {
 
         Ok(ForwardReceipt { status })
     }
-}
-
-fn is_valid_hostname(host: &str) -> bool {
-    host.is_ascii()
-        && host.len() <= 253
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|character| character.is_ascii_alphanumeric() || character == b'-')
-        })
 }

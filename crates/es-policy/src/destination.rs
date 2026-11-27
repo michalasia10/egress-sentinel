@@ -48,6 +48,15 @@ impl DestinationCatalog {
 }
 
 impl Destination {
+    /// Returns whether `host` is a valid hostname declared in this destination's allow-list.
+    pub fn allows_host(&self, host: &str) -> bool {
+        is_hostname(host)
+            && self
+                .allowed_hosts
+                .iter()
+                .any(|allowed_host| allowed_host.eq_ignore_ascii_case(host))
+    }
+
     fn from_raw(
         raw: RawDestination,
         declared_ids: &mut HashSet<String>,
