@@ -149,6 +149,27 @@ pub struct Decision {
     detection_categories: BTreeSet<DetectionCategory>,
 }
 
+/// Named inputs used to construct a validated [`Decision`].
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DecisionInput {
+    /// Project that owns this decision.
+    pub project_id: ProjectId,
+    /// Selected destination.
+    pub destination_id: DestinationId,
+    /// Protocol that delivered the payload.
+    pub source_protocol: SourceProtocol,
+    /// Payload size measured in bytes.
+    pub payload_size: PayloadSizeBytes,
+    /// Active policy revision used for evaluation.
+    pub policy_revision: PolicyRevision,
+    /// Final resolution of the evaluation.
+    pub resolution: DecisionResolution,
+    /// Rules applied in evaluation order.
+    pub applied_rules: Vec<AppliedRule>,
+    /// Sensitive data categories detected in the payload.
+    pub detection_categories: BTreeSet<DetectionCategory>,
+}
+
 impl Decision {
     /// Creates a decision associated with a selected policy revision.
     ///
@@ -167,6 +188,30 @@ impl Decision {
         applied_rules: Vec<AppliedRule>,
         detection_categories: BTreeSet<DetectionCategory>,
     ) -> Result<Self, CoreError> {
+        Self::from_input(DecisionInput {
+            project_id,
+            destination_id,
+            source_protocol,
+            payload_size,
+            policy_revision,
+            resolution,
+            applied_rules,
+            detection_categories,
+        })
+    }
+
+    /// Creates a decision from named inputs, validating its applied-rule sequence.
+    pub fn from_input(input: DecisionInput) -> Result<Self, CoreError> {
+        let DecisionInput {
+            project_id,
+            destination_id,
+            source_protocol,
+            payload_size,
+            policy_revision,
+            resolution,
+            applied_rules,
+            detection_categories,
+        } = input;
         if applied_rules
             .iter()
             .take(applied_rules.len().saturating_sub(1))
