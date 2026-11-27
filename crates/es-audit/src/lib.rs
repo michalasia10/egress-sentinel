@@ -2,4 +2,4 @@
 
 mod store;
 
-pub use store::{AuditError, SqliteAuditStore};
+pub use store::{AuditError, DecisionAuditRecord, SqliteAuditStore};

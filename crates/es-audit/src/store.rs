@@ -93,15 +93,44 @@ impl SqliteAuditStore {
         &self,
         timestamp_unix_ms: i64,
         decision: &Decision,
-    ) -> Result<(), AuditError> {
-        DecisionAuditRecord::new(timestamp_unix_ms, decision)?
+    ) -> Result<DecisionAuditRecord, AuditError> {
+        DecisionAuditDraft::new(timestamp_unix_ms, decision)?
             .insert(&self.pool)
             .await
     }
 }
 
-/// Owns the bounded, payload-free representation written to SQLite.
-struct DecisionAuditRecord {
+/// A persisted row decoded from the audit table.
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+pub struct DecisionAuditRecord {
+    /// SQLite-generated row identifier.
+    pub id: i64,
+    /// Decision timestamp in Unix milliseconds.
+    pub timestamp_unix_ms: i64,
+    /// Project identifier stored for the decision.
+    pub project_id: String,
+    /// Source protocol label stored for the decision.
+    pub source_protocol: String,
+    /// Destination identifier stored for the decision.
+    pub destination_id: String,
+    /// Outcome label stored for the decision.
+    pub outcome: String,
+    /// Policy version stored for the decision.
+    pub policy_version: i64,
+    /// Policy digest stored for the decision.
+    pub policy_digest: String,
+    /// JSON-encoded applied rule identifiers.
+    pub applied_rule_ids: String,
+    /// JSON-encoded detection category labels.
+    pub detection_categories: String,
+    /// Payload size in bytes.
+    pub payload_size_bytes: i64,
+    /// SQLite value of the raw payload storage flag.
+    pub raw_payload_stored: i64,
+}
+
+/// Owns bounded, payload-free values prepared for insertion.
+struct DecisionAuditDraft {
     timestamp_unix_ms: i64,
     project_id: String,
     source_protocol: SourceProtocol,
@@ -114,9 +143,9 @@ struct DecisionAuditRecord {
     payload_size_bytes: i64,
 }
 
-impl DecisionAuditRecord {
+impl DecisionAuditDraft {
     fn new(timestamp_unix_ms: i64, decision: &Decision) -> Result<Self, AuditError> {
-        let record = Self {
+        let draft = Self {
             timestamp_unix_ms,
             project_id: decision
                 .project_id()
@@ -158,17 +187,17 @@ impl DecisionAuditRecord {
         for (field, value, maximum) in [
             (
                 "project_id",
-                record.project_id.as_str(),
+                draft.project_id.as_str(),
                 MAX_IDENTIFIER_BYTES,
             ),
             (
                 "destination_id",
-                record.destination_id.as_str(),
+                draft.destination_id.as_str(),
                 MAX_IDENTIFIER_BYTES,
             ),
             (
                 "policy_digest",
-                record.policy_digest.as_str(),
+                draft.policy_digest.as_str(),
                 MAX_DIGEST_BYTES,
             ),
         ] {
@@ -176,10 +205,10 @@ impl DecisionAuditRecord {
                 return Err(AuditError::FieldTooLong { field, maximum });
             }
         }
-        if record.applied_rule_ids.len() > MAX_RULES {
+        if draft.applied_rule_ids.len() > MAX_RULES {
             return Err(AuditError::TooManyRules);
         }
-        for rule_id in &record.applied_rule_ids {
+        for rule_id in &draft.applied_rule_ids {
             if rule_id.len() > MAX_IDENTIFIER_BYTES {
                 return Err(AuditError::FieldTooLong {
                     field: "rule_id",
@@ -187,10 +216,10 @@ impl DecisionAuditRecord {
                 });
             }
         }
-        Ok(record)
+        Ok(draft)
     }
 
-    async fn insert(&self, pool: &SqlitePool) -> Result<(), AuditError> {
+    async fn insert(&self, pool: &SqlitePool) -> Result<DecisionAuditRecord, AuditError> {
         let applied_rule_ids = serde_json::to_string(&self.applied_rule_ids)?;
         let detection_categories = serde_json::to_string(
             &self
@@ -205,12 +234,15 @@ impl DecisionAuditRecord {
                 .collect::<Vec<_>>(),
         )?;
 
-        sqlx::query(
+        Ok(sqlx::query_as::<_, DecisionAuditRecord>(
             "INSERT INTO decision_audit (
                  timestamp_unix_ms, project_id, source_protocol, destination_id,
                  outcome, policy_version, policy_digest, applied_rule_ids,
                  detection_categories, payload_size_bytes, raw_payload_stored
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+             RETURNING id, timestamp_unix_ms, project_id, source_protocol, destination_id,
+                       outcome, policy_version, policy_digest, applied_rule_ids,
+                       detection_categories, payload_size_bytes, raw_payload_stored",
         )
         .bind(self.timestamp_unix_ms)
         .bind(&self.project_id)
@@ -230,10 +262,8 @@ impl DecisionAuditRecord {
         .bind(applied_rule_ids)
         .bind(detection_categories)
         .bind(self.payload_size_bytes)
-        .execute(pool)
-        .await?;
-
-        Ok(())
+        .fetch_one(pool)
+        .await?)
     }
 }
 
@@ -241,7 +271,7 @@ impl DecisionAuditRecord {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::SqliteAuditStore;
+    use super::{DecisionAuditRecord, SqliteAuditStore};
     use es_core::{
         decision::{AppliedAction, AppliedRule, Decision, DecisionResolution, PayloadSizeBytes},
         detection::DetectionCategory,
@@ -249,21 +279,6 @@ mod tests {
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
         protocol::SourceProtocol,
     };
-
-    #[derive(Debug, PartialEq, sqlx::FromRow)]
-    struct StoredDecisionAudit {
-        timestamp_unix_ms: i64,
-        project_id: String,
-        source_protocol: String,
-        destination_id: String,
-        outcome: String,
-        policy_version: i64,
-        policy_digest: String,
-        applied_rule_ids: String,
-        detection_categories: String,
-        payload_size_bytes: i64,
-        raw_payload_stored: i64,
-    }
 
     fn sample_decision() -> Result<Decision, Box<dyn std::error::Error>> {
         Ok(Decision::new(
@@ -289,20 +304,13 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let store = SqliteAuditStore::in_memory().await?;
         let decision = sample_decision()?;
-        store
+        let stored_values = store
             .record_decision(1_800_000_000_000, &decision)
             .await?;
-
-        let stored_values = sqlx::query_as::<_, StoredDecisionAudit>(
-            "SELECT timestamp_unix_ms, project_id, source_protocol, destination_id, outcome,
-                    policy_version, policy_digest, applied_rule_ids, detection_categories,
-                    payload_size_bytes, raw_payload_stored FROM decision_audit",
-        )
-        .fetch_one(&store.pool)
-        .await?;
         assert_eq!(
             stored_values,
-            StoredDecisionAudit {
+            DecisionAuditRecord {
+                id: 1,
                 timestamp_unix_ms: 1_800_000_000_000,
                 project_id: "project-a".to_owned(),
                 source_protocol: "sentry_envelope".to_owned(),
