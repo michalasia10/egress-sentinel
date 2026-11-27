@@ -42,6 +42,8 @@ Rust formatting and repository checks are configured in:
 
 ## Commit conventions
 
+- After each substantial, coherent change, create a commit before moving on to
+  unrelated work. Do not leave completed implementation work uncommitted.
 - Commit small, meaningful changes that each represent one coherent semantic
   change.
 - Use Conventional Commit prefixes: `fix` for bug fixes, `feat` for new

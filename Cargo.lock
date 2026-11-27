@@ -115,6 +115,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "es-detect"
+version = "0.1.0"
+dependencies = [
+ "es-core",
+ "serde_json",
+]
+
+[[package]]
 name = "es-policy"
 version = "0.1.0"
 dependencies = [
