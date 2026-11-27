@@ -78,24 +78,9 @@ impl SqliteAuditStore {
             .max_connections(maximum_connections)
             .connect_with(options)
             .await?;
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS decision_audit (
-                 id INTEGER PRIMARY KEY,
-                 timestamp_unix_ms INTEGER NOT NULL,
-                 project_id TEXT NOT NULL,
-                 source_protocol TEXT NOT NULL,
-                 destination_id TEXT NOT NULL,
-                 outcome TEXT NOT NULL,
-                 policy_version INTEGER NOT NULL,
-                 policy_digest TEXT NOT NULL,
-                 applied_rule_ids TEXT NOT NULL,
-                 detection_categories TEXT NOT NULL,
-                 payload_size_bytes INTEGER NOT NULL,
-                 raw_payload_stored INTEGER NOT NULL DEFAULT 0 CHECK (raw_payload_stored = 0)
-             )",
-        )
-        .execute(&pool)
-        .await?;
+        sqlx::query(include_str!("schema.sql"))
+            .execute(&pool)
+            .await?;
 
         Ok(Self { pool })
     }
@@ -106,44 +91,116 @@ impl SqliteAuditStore {
         timestamp_unix_ms: i64,
         decision: &Decision,
     ) -> Result<(), AuditError> {
-        let project_id = decision.project_id().as_str();
-        let destination_id = decision.destination_id().as_str();
-        let policy_digest = decision
-            .policy_revision()
-            .digest()
-            .as_str();
-        validate_length("project_id", project_id, MAX_IDENTIFIER_BYTES)?;
-        validate_length("destination_id", destination_id, MAX_IDENTIFIER_BYTES)?;
-        validate_length("policy_digest", policy_digest, MAX_DIGEST_BYTES)?;
-        if decision.applied_rules().len() > MAX_RULES {
-            return Err(AuditError::TooManyRules);
-        }
-        for rule in decision.applied_rules() {
-            validate_length("rule_id", rule.rule_id().as_str(), MAX_IDENTIFIER_BYTES)?;
-        }
+        DecisionAuditRecord::from_decision(timestamp_unix_ms, decision)?
+            .insert(&self.pool)
+            .await
+    }
+}
 
-        let payload_size = i64::try_from(decision.payload_size().as_u64())
-            .map_err(|_| AuditError::PayloadSizeOutOfRange)?;
-        let policy_version = i64::try_from(
-            decision
+/// Owns the bounded, payload-free representation written to SQLite.
+struct DecisionAuditRecord {
+    timestamp_unix_ms: i64,
+    project_id: String,
+    source_protocol: SourceProtocol,
+    destination_id: String,
+    outcome: Outcome,
+    policy_version: i64,
+    policy_digest: String,
+    applied_rule_ids: Vec<String>,
+    detection_categories: Vec<DetectionCategory>,
+    payload_size_bytes: i64,
+}
+
+impl DecisionAuditRecord {
+    fn from_decision(timestamp_unix_ms: i64, decision: &Decision) -> Result<Self, AuditError> {
+        let record = Self {
+            timestamp_unix_ms,
+            project_id: decision
+                .project_id()
+                .as_str()
+                .to_owned(),
+            source_protocol: decision.source_protocol(),
+            destination_id: decision
+                .destination_id()
+                .as_str()
+                .to_owned(),
+            outcome: decision.outcome(),
+            policy_version: i64::try_from(
+                decision
+                    .policy_revision()
+                    .version()
+                    .as_u64(),
+            )
+            .map_err(|_| AuditError::IntegerOutOfRange {
+                field: "policy_version",
+            })?,
+            policy_digest: decision
                 .policy_revision()
-                .version()
-                .as_u64(),
-        )
-        .map_err(|_| AuditError::IntegerOutOfRange {
-            field: "policy_version",
-        })?;
-        let rule_ids = json_strings(
-            decision
+                .digest()
+                .as_str()
+                .to_owned(),
+            applied_rule_ids: decision
                 .applied_rules()
                 .iter()
-                .map(|rule| rule.rule_id().as_str()),
-        )?;
-        let categories = json_strings(
-            decision
+                .map(|rule| rule.rule_id().as_str().to_owned())
+                .collect(),
+            detection_categories: decision
                 .detection_categories()
                 .iter()
-                .map(detection_category_label),
+                .copied()
+                .collect(),
+            payload_size_bytes: i64::try_from(decision.payload_size().as_u64())
+                .map_err(|_| AuditError::PayloadSizeOutOfRange)?,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    fn validate(&self) -> Result<(), AuditError> {
+        for (field, value, maximum) in [
+            ("project_id", self.project_id.as_str(), MAX_IDENTIFIER_BYTES),
+            (
+                "destination_id",
+                self.destination_id.as_str(),
+                MAX_IDENTIFIER_BYTES,
+            ),
+            (
+                "policy_digest",
+                self.policy_digest.as_str(),
+                MAX_DIGEST_BYTES,
+            ),
+        ] {
+            if value.len() > maximum {
+                return Err(AuditError::FieldTooLong { field, maximum });
+            }
+        }
+        if self.applied_rule_ids.len() > MAX_RULES {
+            return Err(AuditError::TooManyRules);
+        }
+        for rule_id in &self.applied_rule_ids {
+            if rule_id.len() > MAX_IDENTIFIER_BYTES {
+                return Err(AuditError::FieldTooLong {
+                    field: "rule_id",
+                    maximum: MAX_IDENTIFIER_BYTES,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn insert(&self, pool: &SqlitePool) -> Result<(), AuditError> {
+        let applied_rule_ids = serde_json::to_string(&self.applied_rule_ids)?;
+        let detection_categories = serde_json::to_string(
+            &self
+                .detection_categories
+                .iter()
+                .map(|category| match category {
+                    DetectionCategory::Jwt => "jwt",
+                    DetectionCategory::ApiKey => "api_key",
+                    DetectionCategory::PrivateKey => "private_key",
+                    DetectionCategory::ConnectionString => "connection_string",
+                })
+                .collect::<Vec<_>>(),
         )?;
 
         sqlx::query(
@@ -153,56 +210,28 @@ impl SqliteAuditStore {
                  detection_categories, payload_size_bytes, raw_payload_stored
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
         )
-        .bind(timestamp_unix_ms)
-        .bind(project_id)
-        .bind(source_protocol_label(decision.source_protocol()))
-        .bind(destination_id)
-        .bind(outcome_label(decision.outcome()))
-        .bind(policy_version)
-        .bind(policy_digest)
-        .bind(rule_ids)
-        .bind(categories)
-        .bind(payload_size)
-        .execute(&self.pool)
+        .bind(self.timestamp_unix_ms)
+        .bind(&self.project_id)
+        .bind(match self.source_protocol {
+            SourceProtocol::SentryEnvelope => "sentry_envelope",
+        })
+        .bind(&self.destination_id)
+        .bind(match self.outcome {
+            Outcome::Forwarded => "forwarded",
+            Outcome::Dropped => "dropped",
+            Outcome::Quarantined => "quarantined",
+            Outcome::Rejected => "rejected",
+            Outcome::Failed => "failed",
+        })
+        .bind(self.policy_version)
+        .bind(&self.policy_digest)
+        .bind(applied_rule_ids)
+        .bind(detection_categories)
+        .bind(self.payload_size_bytes)
+        .execute(pool)
         .await?;
 
         Ok(())
-    }
-}
-
-fn validate_length(field: &'static str, value: &str, maximum: usize) -> Result<(), AuditError> {
-    if value.len() > maximum {
-        return Err(AuditError::FieldTooLong { field, maximum });
-    }
-    Ok(())
-}
-
-fn json_strings<'a>(values: impl Iterator<Item = &'a str>) -> Result<String, AuditError> {
-    Ok(serde_json::to_string(&values.collect::<Vec<_>>())?)
-}
-
-fn source_protocol_label(protocol: SourceProtocol) -> &'static str {
-    match protocol {
-        SourceProtocol::SentryEnvelope => "sentry_envelope",
-    }
-}
-
-fn outcome_label(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Forwarded => "forwarded",
-        Outcome::Dropped => "dropped",
-        Outcome::Quarantined => "quarantined",
-        Outcome::Rejected => "rejected",
-        Outcome::Failed => "failed",
-    }
-}
-
-fn detection_category_label(category: &DetectionCategory) -> &'static str {
-    match category {
-        DetectionCategory::Jwt => "jwt",
-        DetectionCategory::ApiKey => "api_key",
-        DetectionCategory::PrivateKey => "private_key",
-        DetectionCategory::ConnectionString => "connection_string",
     }
 }
 
@@ -210,6 +239,7 @@ fn detection_category_label(category: &DetectionCategory) -> &'static str {
 mod tests {
     use std::collections::BTreeSet;
 
+    use super::SqliteAuditStore;
     use es_core::{
         decision::{AppliedAction, AppliedRule, Decision, DecisionResolution, PayloadSizeBytes},
         detection::DetectionCategory,
@@ -217,9 +247,6 @@ mod tests {
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
         protocol::SourceProtocol,
     };
-    use sqlx::Row;
-
-    use super::SqliteAuditStore;
 
     fn sample_decision() -> Result<Decision, Box<dyn std::error::Error>> {
         Ok(Decision::new(
@@ -249,26 +276,25 @@ mod tests {
             .record_decision(1_800_000_000_000, &decision)
             .await?;
 
-        let row = sqlx::query(
+        let stored_values: (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+        ) = sqlx::query_as(
             "SELECT timestamp_unix_ms, project_id, source_protocol, destination_id, outcome,
                     policy_version, policy_digest, applied_rule_ids, detection_categories,
                     payload_size_bytes, raw_payload_stored FROM decision_audit",
         )
         .fetch_one(&store.pool)
         .await?;
-        let stored_values = (
-            row.try_get::<i64, _>("timestamp_unix_ms")?,
-            row.try_get::<String, _>("project_id")?,
-            row.try_get::<String, _>("source_protocol")?,
-            row.try_get::<String, _>("destination_id")?,
-            row.try_get::<String, _>("outcome")?,
-            row.try_get::<i64, _>("policy_version")?,
-            row.try_get::<String, _>("policy_digest")?,
-            row.try_get::<String, _>("applied_rule_ids")?,
-            row.try_get::<String, _>("detection_categories")?,
-            row.try_get::<i64, _>("payload_size_bytes")?,
-            row.try_get::<i64, _>("raw_payload_stored")?,
-        );
         assert_eq!(
             stored_values,
             (
