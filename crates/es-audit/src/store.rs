@@ -7,7 +7,10 @@ use es_core::{
     detection::DetectionCategory,
     protocol::SourceProtocol,
 };
-use rusqlite::{Connection, params};
+use sqlx::{
+    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
 use thiserror::Error;
 
 const MAX_IDENTIFIER_BYTES: usize = 256;
@@ -40,31 +43,43 @@ pub enum AuditError {
     /// A metadata list could not be serialized as JSON.
     #[error("could not encode audit metadata list")]
     Json(#[from] serde_json::Error),
-    /// SQLite could not open, initialize, or write the audit store.
+    /// SQLx could not open, initialize, or write the audit store.
     #[error(transparent)]
-    Sqlite(#[from] rusqlite::Error),
+    Sqlx(#[from] sqlx::Error),
 }
 
-/// SQLite-backed store for decision metadata only.
+/// SQLx-backed SQLite store for decision metadata only.
 pub struct SqliteAuditStore {
-    connection: Connection,
+    pool: SqlitePool,
 }
 
 impl SqliteAuditStore {
     /// Opens or creates an audit database at `path` and initializes its schema.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, AuditError> {
-        Self::from_connection(Connection::open(path)?)
+    pub async fn open(path: impl AsRef<Path>) -> Result<Self, AuditError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        Self::connect(options, 5).await
     }
 
     /// Creates an in-memory audit database.
-    pub fn in_memory() -> Result<Self, AuditError> {
-        Self::from_connection(Connection::open_in_memory()?)
+    pub async fn in_memory() -> Result<Self, AuditError> {
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .shared_cache(true);
+        Self::connect(options, 1).await
     }
 
-    fn from_connection(connection: Connection) -> Result<Self, AuditError> {
-        connection.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE IF NOT EXISTS decision_audit (
+    async fn connect(
+        options: SqliteConnectOptions,
+        maximum_connections: u32,
+    ) -> Result<Self, AuditError> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(maximum_connections)
+            .connect_with(options)
+            .await?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS decision_audit (
                  id INTEGER PRIMARY KEY,
                  timestamp_unix_ms INTEGER NOT NULL,
                  project_id TEXT NOT NULL,
@@ -77,13 +92,16 @@ impl SqliteAuditStore {
                  detection_categories TEXT NOT NULL,
                  payload_size_bytes INTEGER NOT NULL,
                  raw_payload_stored INTEGER NOT NULL DEFAULT 0 CHECK (raw_payload_stored = 0)
-             );",
-        )?;
-        Ok(Self { connection })
+             )",
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(Self { pool })
     }
 
     /// Records a decision's safe metadata using bound SQL parameters.
-    pub fn record_decision(
+    pub async fn record_decision(
         &self,
         timestamp_unix_ms: i64,
         decision: &Decision,
@@ -128,25 +146,26 @@ impl SqliteAuditStore {
                 .map(detection_category_label),
         )?;
 
-        self.connection.execute(
+        sqlx::query(
             "INSERT INTO decision_audit (
                  timestamp_unix_ms, project_id, source_protocol, destination_id,
                  outcome, policy_version, policy_digest, applied_rule_ids,
                  detection_categories, payload_size_bytes, raw_payload_stored
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
-            params![
-                timestamp_unix_ms,
-                project_id,
-                source_protocol_label(decision.source_protocol()),
-                destination_id,
-                outcome_label(decision.outcome()),
-                policy_version,
-                policy_digest,
-                rule_ids,
-                categories,
-                payload_size,
-            ],
-        )?;
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+        )
+        .bind(timestamp_unix_ms)
+        .bind(project_id)
+        .bind(source_protocol_label(decision.source_protocol()))
+        .bind(destination_id)
+        .bind(outcome_label(decision.outcome()))
+        .bind(policy_version)
+        .bind(policy_digest)
+        .bind(rule_ids)
+        .bind(categories)
+        .bind(payload_size)
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 }
@@ -198,7 +217,7 @@ mod tests {
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
         protocol::SourceProtocol,
     };
-    use rusqlite::params;
+    use sqlx::Row;
 
     use super::SqliteAuditStore;
 
@@ -221,92 +240,82 @@ mod tests {
         )?)
     }
 
-    #[test]
-    fn stores_required_metadata_without_payload_or_secret_values()
+    #[tokio::test]
+    async fn stores_required_metadata_without_payload_or_secret_values()
     -> Result<(), Box<dyn std::error::Error>> {
-        let store = SqliteAuditStore::in_memory()?;
+        let store = SqliteAuditStore::in_memory().await?;
         let decision = sample_decision()?;
-        store.record_decision(1_800_000_000_000, &decision)?;
+        store
+            .record_decision(1_800_000_000_000, &decision)
+            .await?;
 
-        let row: (
-            i64,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-        ) = store.connection.query_row(
+        let row = sqlx::query(
             "SELECT timestamp_unix_ms, project_id, source_protocol, destination_id, outcome,
-                        policy_version, policy_digest, applied_rule_ids, detection_categories,
-                        payload_size_bytes, raw_payload_stored FROM decision_audit",
-            [],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
-                    row.get(10)?,
-                ))
-            },
-        )?;
+                    policy_version, policy_digest, applied_rule_ids, detection_categories,
+                    payload_size_bytes, raw_payload_stored FROM decision_audit",
+        )
+        .fetch_one(&store.pool)
+        .await?;
+        let stored_values = (
+            row.try_get::<i64, _>("timestamp_unix_ms")?,
+            row.try_get::<String, _>("project_id")?,
+            row.try_get::<String, _>("source_protocol")?,
+            row.try_get::<String, _>("destination_id")?,
+            row.try_get::<String, _>("outcome")?,
+            row.try_get::<i64, _>("policy_version")?,
+            row.try_get::<String, _>("policy_digest")?,
+            row.try_get::<String, _>("applied_rule_ids")?,
+            row.try_get::<String, _>("detection_categories")?,
+            row.try_get::<i64, _>("payload_size_bytes")?,
+            row.try_get::<i64, _>("raw_payload_stored")?,
+        );
         assert_eq!(
-            row,
+            stored_values,
             (
                 1_800_000_000_000,
-                "project-a".into(),
-                "sentry_envelope".into(),
-                "destination-a".into(),
-                "forwarded".into(),
+                "project-a".to_owned(),
+                "sentry_envelope".to_owned(),
+                "destination-a".to_owned(),
+                "forwarded".to_owned(),
                 7,
-                "sha256:abc123".into(),
-                "[\"remove-token\"]".into(),
-                "[\"jwt\",\"api_key\"]".into(),
+                "sha256:abc123".to_owned(),
+                "[\"remove-token\"]".to_owned(),
+                "[\"jwt\",\"api_key\"]".to_owned(),
                 42,
                 0
             )
         );
 
-        let stored_values = format!("{row:?}");
+        let stored_values = format!("{stored_values:?}");
         assert!(!stored_values.contains("raw-payload-sentinel"));
         assert!(!stored_values.contains("secret-value-sentinel"));
         Ok(())
     }
 
-    #[test]
-    fn schema_rejects_raw_payload_storage() -> Result<(), Box<dyn std::error::Error>> {
-        let store = SqliteAuditStore::in_memory()?;
-        let rejected = store.connection.execute(
+    #[tokio::test]
+    async fn schema_rejects_raw_payload_storage() -> Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteAuditStore::in_memory().await?;
+        let result = sqlx::query(
             "INSERT INTO decision_audit (timestamp_unix_ms, project_id, source_protocol,
              destination_id, outcome, policy_version, policy_digest, applied_rule_ids,
              detection_categories, payload_size_bytes, raw_payload_stored)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                0,
-                "p",
-                "sentry_envelope",
-                "d",
-                "forwarded",
-                1,
-                "d",
-                "[]",
-                "[]",
-                0,
-                1
-            ],
-        );
-        assert!(rejected.is_err());
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(0_i64)
+        .bind("p")
+        .bind("sentry_envelope")
+        .bind("d")
+        .bind("forwarded")
+        .bind(1_i64)
+        .bind("d")
+        .bind("[]")
+        .bind("[]")
+        .bind(0_i64)
+        .bind(1_i64)
+        .execute(&store.pool)
+        .await;
+
+        assert!(result.is_err());
         Ok(())
     }
 }
