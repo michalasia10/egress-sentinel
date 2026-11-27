@@ -17,6 +17,11 @@ Rust formatting and repository checks are configured in:
 - Prefer domain objects and methods that own their state and invariants.
 - Use enums for closed sets of domain values, states, commands, and actions;
   avoid carrying such values as raw strings beyond the deserialization boundary.
+- Put parameters required by an action in that action's enum variant, so a
+  compiled action cannot pair an operation with missing or irrelevant options.
+  Keep the behavior that applies the action on the action type when that makes
+  the evaluation flow clearer; do not spread optional-parameter checks across
+  the evaluator.
 - Model validation failures with typed, domain-owned error enums and central
   field-path enums instead of scattering raw field-path strings through the
   validation logic.
