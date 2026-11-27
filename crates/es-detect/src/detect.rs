@@ -1,5 +1,6 @@
 //! Deterministic detection of basic secrets in normalized JSON data.
 
+use crate::validators::SECRET_VALIDATORS;
 use es_core::detection::DetectionCategory;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -66,83 +67,11 @@ impl SecretDetector {
     }
 
     fn categories_in(text: &str) -> BTreeSet<DetectionCategory> {
-        let mut categories = BTreeSet::new();
-        if Self::contains_jwt(text) {
-            categories.insert(DetectionCategory::Jwt);
-        }
-        if Self::contains_api_key(text) {
-            categories.insert(DetectionCategory::ApiKey);
-        }
-        if text.contains("-----BEGIN ") && text.contains(" PRIVATE KEY-----") {
-            categories.insert(DetectionCategory::PrivateKey);
-        }
-        if Self::contains_connection_string(text) {
-            categories.insert(DetectionCategory::ConnectionString);
-        }
-        categories
-    }
-
-    fn contains_jwt(text: &str) -> bool {
-        text.split(|character: char| {
-            !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
-        })
-        .any(|candidate| {
-            let mut parts = candidate.split('.');
-            matches!((parts.next(), parts.next(), parts.next(), parts.next()),
-                    (Some(header), Some(payload), Some(signature), None)
-                    if Self::base64url_segment(header) && Self::base64url_segment(payload)
-                        && Self::base64url_segment(signature) && signature.len() >= 8)
-        })
-    }
-
-    fn base64url_segment(segment: &str) -> bool {
-        segment.len() >= 4
-            && segment
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'='))
-    }
-
-    fn contains_api_key(text: &str) -> bool {
-        [
-            "sk-",
-            "ghp_",
-            "github_pat_",
-            "glpat-",
-            "xoxb-",
-            "xoxp-",
-            "AKIA",
-        ]
-        .iter()
-        .any(|prefix| {
-            text.match_indices(prefix)
-                .any(|(index, matched)| {
-                    let token = &text[index + matched.len()..];
-                    let length = token
-                        .bytes()
-                        .take_while(|byte| {
-                            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
-                        })
-                        .count();
-                    length >= 12
-                })
-        })
-    }
-
-    fn contains_connection_string(text: &str) -> bool {
-        [
-            "postgres://",
-            "postgresql://",
-            "mysql://",
-            "mongodb://",
-            "mongodb+srv://",
-            "redis://",
-            "amqp://",
-        ]
-        .iter()
-        .any(|scheme| {
-            text.to_ascii_lowercase()
-                .contains(scheme)
-        }) || (text.contains("://") && text.contains('@') && text.contains(':'))
+        SECRET_VALIDATORS
+            .iter()
+            .filter(|validator| validator.matches(text))
+            .map(|validator| validator.category())
+            .collect()
     }
 
     fn escape_pointer(field: &str) -> String {
