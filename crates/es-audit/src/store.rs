@@ -17,6 +17,8 @@ const MAX_IDENTIFIER_BYTES: usize = 256;
 const MAX_DIGEST_BYTES: usize = 256;
 const MAX_RULES: usize = 256;
 
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 /// Errors returned while validating or storing audit metadata.
 #[derive(Debug, Error)]
 pub enum AuditError {
@@ -46,6 +48,9 @@ pub enum AuditError {
     /// SQLx could not open, initialize, or write the audit store.
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
+    /// SQLx could not apply an audit schema migration.
+    #[error(transparent)]
+    Migration(#[from] sqlx::migrate::MigrateError),
 }
 
 /// SQLx-backed SQLite store for decision metadata only.
@@ -78,9 +83,7 @@ impl SqliteAuditStore {
             .max_connections(maximum_connections)
             .connect_with(options)
             .await?;
-        sqlx::query(include_str!("schema.sql"))
-            .execute(&pool)
-            .await?;
+        MIGRATOR.run(&pool).await?;
 
         Ok(Self { pool })
     }
