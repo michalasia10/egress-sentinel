@@ -4,6 +4,11 @@ Policies are declarative YAML files. They are validated and compiled before
 activation. A policy error prevents activation rather than weakening egress
 controls.
 
+Each compiled policy retains its declared format version and the SHA-256 digest
+of the exact YAML source bytes used to compile it. Every evaluation result
+includes both values so a decision can be tied to the active policy revision;
+even a formatting-only source change produces a different digest.
+
 ## Example
 
 ```yaml

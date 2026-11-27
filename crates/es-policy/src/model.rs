@@ -8,6 +8,8 @@ use std::num::NonZeroU64;
 pub struct Policy {
     /// Monotonically assigned policy format version.
     pub version: u64,
+    /// SHA-256 digest of the exact YAML source used to compile this policy.
+    pub digest: String,
     /// Named, approved outbound destinations.
     pub destinations: Vec<Destination>,
     /// Rules evaluated in declaration order.
