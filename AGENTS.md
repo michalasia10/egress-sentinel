@@ -29,6 +29,12 @@ Rust formatting and repository checks are configured in:
   structures, and assemble the result at the same time.
 - Limit private helpers; do not extract a function merely to shorten a method.
   Every new object or method should have a clear domain responsibility.
+- Do not split one domain operation into a chain of private plumbing functions.
+  When traversal, ordering, and mutation all concern the same domain value, put
+  them on the object that owns that value; introduce a new type only when it
+  owns a meaningful invariant or a cohesive set of operations. For example,
+  keep normalized-data selection, path ordering, and mutation together on the
+  normalized-data type instead of scattering them across one-use functions.
 - During refactoring, also improve existing code in the directly affected area
   when it improves readability without changing the contract.
 - Keep the main operation flow short and readable, and place validation details
