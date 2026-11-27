@@ -171,53 +171,38 @@ impl RuleAction {
         destination: Option<String>,
         destinations: &DestinationCatalog,
     ) -> Result<Self, PolicyError> {
-        if matches!(action, Action::HmacSha256) && key_ref.is_none() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::KeyRef,
-                cause: RuleCause::RequiredForAction(action),
-            }));
-        }
-        if !matches!(action, Action::HmacSha256) && key_ref.is_some() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::KeyRef,
-                cause: RuleCause::ForbiddenForAction(action),
-            }));
-        }
-        if matches!(action, Action::Replace) && marker.is_none() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Marker,
-                cause: RuleCause::RequiredForAction(action),
-            }));
-        }
-        if !matches!(action, Action::Replace) && marker.is_some() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Marker,
-                cause: RuleCause::ForbiddenForAction(action),
-            }));
-        }
-        if matches!(action, Action::Mask) && preserve.is_none() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Preserve,
-                cause: RuleCause::RequiredForAction(action),
-            }));
-        }
-        if !matches!(action, Action::Mask) && preserve.is_some() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Preserve,
-                cause: RuleCause::ForbiddenForAction(action),
-            }));
-        }
-        if matches!(action, Action::Route) && destination.is_none() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Destination,
-                cause: RuleCause::RequiredForAction(action),
-            }));
-        }
-        if !matches!(action, Action::Route) && destination.is_some() {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Destination,
-                cause: RuleCause::ForbiddenForAction(action),
-            }));
+        for (field, present, required) in [
+            (
+                RuleField::KeyRef,
+                key_ref.is_some(),
+                action == Action::HmacSha256,
+            ),
+            (
+                RuleField::Marker,
+                marker.is_some(),
+                action == Action::Replace,
+            ),
+            (
+                RuleField::Preserve,
+                preserve.is_some(),
+                action == Action::Mask,
+            ),
+            (
+                RuleField::Destination,
+                destination.is_some(),
+                action == Action::Route,
+            ),
+        ] {
+            if present != required {
+                return Err(PolicyError::Rule(RuleError::Invalid {
+                    field,
+                    cause: if required {
+                        RuleCause::RequiredForAction(action)
+                    } else {
+                        RuleCause::ForbiddenForAction(action)
+                    },
+                }));
+            }
         }
         if let Some(destination) = &destination
             && !destinations.contains(destination)
@@ -228,58 +213,59 @@ impl RuleAction {
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::KeyRef,
-                cause: RuleCause::Empty,
-            }));
+            return Err(invalid_action_parameter(
+                RuleField::KeyRef,
+                RuleCause::Empty,
+            ));
         }
         if marker
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Marker,
-                cause: RuleCause::Empty,
-            }));
+            return Err(invalid_action_parameter(
+                RuleField::Marker,
+                RuleCause::Empty,
+            ));
         }
         if preserve == Some(0) {
-            return Err(PolicyError::Rule(RuleError::Invalid {
-                field: RuleField::Preserve,
-                cause: RuleCause::MustBePositive,
-            }));
+            return Err(invalid_action_parameter(
+                RuleField::Preserve,
+                RuleCause::MustBePositive,
+            ));
         }
-        Ok(match action {
-            Action::Remove => Self::Remove,
-            Action::Replace => Self::Replace {
-                marker: marker.ok_or(PolicyError::Rule(RuleError::Invalid {
-                    field: RuleField::Marker,
-                    cause: RuleCause::RequiredForAction(action),
-                }))?,
-            },
-            Action::Mask => Self::Mask {
-                preserve: std::num::NonZeroU64::new(preserve.unwrap_or_default()).ok_or(
-                    PolicyError::Rule(RuleError::Invalid {
-                        field: RuleField::Preserve,
-                        cause: RuleCause::MustBePositive,
-                    }),
-                )?,
-            },
-            Action::HmacSha256 => Self::HmacSha256 {
-                key_ref: key_ref.ok_or(PolicyError::Rule(RuleError::Invalid {
-                    field: RuleField::KeyRef,
-                    cause: RuleCause::RequiredForAction(action),
-                }))?,
-            },
-            Action::DropEvent => Self::DropEvent,
-            Action::Quarantine => Self::Quarantine,
-            Action::Route => Self::Route {
-                destination: destination.ok_or(PolicyError::Rule(RuleError::Invalid {
-                    field: RuleField::Destination,
-                    cause: RuleCause::RequiredForAction(action),
-                }))?,
-            },
-        })
+
+        let required = |field| {
+            PolicyError::Rule(RuleError::Invalid {
+                field,
+                cause: RuleCause::RequiredForAction(action),
+            })
+        };
+        match action {
+            Action::Remove => Ok(Self::Remove),
+            Action::Replace => Ok(Self::Replace {
+                marker: marker.ok_or_else(|| required(RuleField::Marker))?,
+            }),
+            Action::Mask => {
+                let preserve = preserve.ok_or_else(|| required(RuleField::Preserve))?;
+                let preserve = std::num::NonZeroU64::new(preserve).ok_or_else(|| {
+                    invalid_action_parameter(RuleField::Preserve, RuleCause::MustBePositive)
+                })?;
+                Ok(Self::Mask { preserve })
+            }
+            Action::HmacSha256 => Ok(Self::HmacSha256 {
+                key_ref: key_ref.ok_or_else(|| required(RuleField::KeyRef))?,
+            }),
+            Action::DropEvent => Ok(Self::DropEvent),
+            Action::Quarantine => Ok(Self::Quarantine),
+            Action::Route => Ok(Self::Route {
+                destination: destination.ok_or_else(|| required(RuleField::Destination))?,
+            }),
+        }
     }
+}
+
+fn invalid_action_parameter(field: RuleField, cause: RuleCause) -> PolicyError {
+    PolicyError::Rule(RuleError::Invalid { field, cause })
 }
 
 impl From<RawAction> for Action {
