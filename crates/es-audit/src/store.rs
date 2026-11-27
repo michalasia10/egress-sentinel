@@ -116,7 +116,10 @@ mod tests {
 
     use super::{DecisionAuditRecord, SqliteAuditStore};
     use es_core::{
-        decision::{AppliedAction, AppliedRule, Decision, DecisionResolution, PayloadSizeBytes},
+        decision::{
+            AppliedAction, AppliedRule, Decision, DecisionInput, DecisionResolution,
+            PayloadSizeBytes,
+        },
         detection::DetectionCategory,
         identifiers::{DestinationId, ProjectId},
         policy::{PolicyDigest, PolicyRevision, PolicyVersion, RuleId},
@@ -124,22 +127,25 @@ mod tests {
     };
 
     fn sample_decision() -> Result<Decision, Box<dyn std::error::Error>> {
-        Ok(Decision::new(
-            ProjectId::new("project-a".to_owned())?,
-            DestinationId::new("destination-a".to_owned())?,
-            SourceProtocol::SentryEnvelope,
-            PayloadSizeBytes::new(42),
-            PolicyRevision::new(
+        Ok(Decision::from_input(DecisionInput {
+            project_id: ProjectId::new("project-a".to_owned())?,
+            destination_id: DestinationId::new("destination-a".to_owned())?,
+            source_protocol: SourceProtocol::SentryEnvelope,
+            payload_size: PayloadSizeBytes::new(42),
+            policy_revision: PolicyRevision::new(
                 PolicyVersion::new(7)?,
                 PolicyDigest::new("sha256:abc123".to_owned())?,
             ),
-            DecisionResolution::Forwarded,
-            vec![AppliedRule::new(
+            resolution: DecisionResolution::Forwarded,
+            applied_rules: vec![AppliedRule::new(
                 RuleId::new("remove-token".to_owned())?,
                 AppliedAction::Remove,
             )],
-            BTreeSet::from([DetectionCategory::Jwt, DetectionCategory::ApiKey]),
-        )?)
+            detection_categories: BTreeSet::from([
+                DetectionCategory::Jwt,
+                DetectionCategory::ApiKey,
+            ]),
+        })?)
     }
 
     #[tokio::test]
