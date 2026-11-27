@@ -147,3 +147,95 @@ impl<'a> EnvelopeReader<'a> {
         Ok(payload)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{EnvelopeLimits, SentryEnvelope, SentryEnvelopeError};
+
+    const HEADER: &[u8] = b"{}\n{\"type\":\"event\",\"length\":7}\n";
+    const PAYLOAD: &[u8] = b"{\"a\":1}";
+
+    fn request(payload: &[u8]) -> Vec<u8> {
+        [HEADER, payload].concat()
+    }
+
+    fn limits() -> EnvelopeLimits {
+        EnvelopeLimits {
+            max_request_bytes: 1024,
+            max_event_bytes: 1024,
+            max_fields: 1024,
+            max_field_bytes: 1024,
+        }
+    }
+
+    fn parse_error(input: &[u8], limits: EnvelopeLimits) -> SentryEnvelopeError {
+        match SentryEnvelope::parse(input, limits) {
+            Ok(_) => panic!("expected envelope parsing to fail"),
+            Err(error) => error,
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_declared_payload() {
+        let input = request(&PAYLOAD[..PAYLOAD.len() - 1]);
+
+        assert_eq!(
+            parse_error(&input, limits()),
+            SentryEnvelopeError::InvalidEnvelope
+        );
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_and_additional_items() {
+        for tail in [b"x".as_slice(), b"\n{}\n{}"] {
+            let mut input = request(PAYLOAD);
+            input.extend_from_slice(tail);
+
+            assert_eq!(
+                parse_error(&input, limits()),
+                SentryEnvelopeError::InvalidEnvelope
+            );
+        }
+    }
+
+    #[test]
+    fn enforces_request_and_event_limits() {
+        let input = request(PAYLOAD);
+        let mut bounded = limits();
+        bounded.max_request_bytes = input.len() - 1;
+        assert_eq!(
+            parse_error(&input, bounded),
+            SentryEnvelopeError::RequestTooLarge
+        );
+
+        bounded = limits();
+        bounded.max_event_bytes = PAYLOAD.len() - 1;
+        assert_eq!(
+            parse_error(&input, bounded),
+            SentryEnvelopeError::EventTooLarge
+        );
+    }
+
+    #[test]
+    fn enforces_field_count_and_size_limits() {
+        let input = request(PAYLOAD);
+        let mut bounded = limits();
+        bounded.max_fields = 0;
+        assert_eq!(
+            parse_error(&input, bounded),
+            SentryEnvelopeError::FieldsTooLarge
+        );
+
+        let input = [
+            b"{}\n{\"type\":\"event\",\"length\":12}\n".as_slice(),
+            b"{\"a\":\"long\"}",
+        ]
+        .concat();
+        let mut bounded = limits();
+        bounded.max_field_bytes = 3;
+        assert_eq!(
+            parse_error(&input, bounded),
+            SentryEnvelopeError::FieldsTooLarge
+        );
+    }
+}
