@@ -1,5 +1,6 @@
 //! Validated policy model.
 
+use serde_json_path::JsonPath;
 use std::fmt::{self, Display, Formatter};
 /// A validated policy ready for activation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,10 +61,10 @@ pub enum Matcher {
 /// Field and key selectors for a matching rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Match {
-    /// Optional JSONPath expression.
-    pub json_path: Option<String>,
-    /// JSONPath expressions to inspect.
-    pub paths: Vec<String>,
+    /// Optional compiled JSONPath expression.
+    pub json_path: Option<JsonPath>,
+    /// Compiled JSONPath expressions to inspect.
+    pub paths: Vec<JsonPath>,
     /// Object key names to inspect.
     pub key_matches: Vec<String>,
 }

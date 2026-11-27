@@ -7,6 +7,7 @@ license = "Apache-2.0"
 [dependencies]
 es-core = { path = "../es-core" }
 serde = { workspace = true }
+serde_json_path = "0.7.2"
 thiserror = { workspace = true }
 yaml_serde = { workspace = true }
 validator = { workspace = true }

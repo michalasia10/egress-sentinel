@@ -1,5 +1,6 @@
 //! Rule declarations, matchers, and action invariants.
 
+use serde_json_path::JsonPath;
 use std::collections::HashSet;
 
 use crate::{
@@ -140,12 +141,29 @@ impl Match {
                 cause: RuleCause::InvalidMatcher,
             }));
         }
+        let json_path = raw
+            .json_path
+            .map(|path| JsonPath::parse(&path))
+            .transpose()
+            .map_err(|_| invalid_json_path(RuleField::JsonPath))?;
+        let paths = raw
+            .paths
+            .into_iter()
+            .map(|path| JsonPath::parse(&path).map_err(|_| invalid_json_path(RuleField::Paths)))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            json_path: raw.json_path,
-            paths: raw.paths,
+            json_path,
+            paths,
             key_matches: raw.key_matches,
         })
     }
+}
+
+fn invalid_json_path(field: RuleField) -> PolicyError {
+    PolicyError::Rule(RuleError::Invalid {
+        field,
+        cause: RuleCause::InvalidJsonPath,
+    })
 }
 
 struct RuleAction {
